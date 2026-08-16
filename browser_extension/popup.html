@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Job Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>Job Assistant</h1>
+      <label>
+        Source
+        <select id="source">
+          <option value="other">Other</option>
+          <option value="linkedin" selected>LinkedIn</option>
+          <option value="headhunter">HeadHunter</option>
+          <option value="greenhouse">Greenhouse</option>
+          <option value="lever">Lever</option>
+        </select>
+      </label>
+      <label>
+        Vacancy title
+        <input id="vacancy-title" type="text" maxlength="500" autocomplete="off">
+      </label>
+      <label>
+        Company
+        <input id="company" type="text" maxlength="500" autocomplete="off">
+      </label>
+      <button id="save">Save to Job Assistant</button>
+      <p id="status" role="status"></p>
+      <p><a href="options.html" target="_blank">Configure token</a></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

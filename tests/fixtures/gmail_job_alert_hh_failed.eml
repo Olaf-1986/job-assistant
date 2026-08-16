@@ -1,0 +1,12 @@
+From: alerts@example.test
+To: user@example.test
+Subject: HH failed lookup alert
+Message-ID: <alert-hh-failed@example.test>
+Date: Tue, 04 Aug 2026 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Title: Missing HH Analyst
+Company: Missing Co
+Location: Remote
+https://hh.ru/vacancy/999?utm_campaign=mail

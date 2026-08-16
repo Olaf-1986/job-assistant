@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# Generated job-assistant outputs
+output/*
+!output/.gitkeep
+
+# User-provided vacancy text imports
+input/manual/*
+!input/manual/.gitkeep
+
+# Browser auth state and local browser profiles
+playwright/.auth/*
+!playwright/.auth/.gitkeep
+data/browser_profiles/*
+!data/browser_profiles/.gitkeep
+data/browser_profiles/linkedin/
+data/capture_token
+data/wellfound_failures/
+
+# Windows Mark-of-the-Web metadata
+*:Zone.Identifier

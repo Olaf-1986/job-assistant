@@ -1,0 +1,437 @@
+run:
+  shortlist_size: 50
+  pages_per_query: 1
+  request_timeout_seconds: 30
+  request_delay_seconds: 0.5
+  max_retries: 3
+
+future_llm:
+  max_analyzed_jobs_per_day: 20
+  enabled: false
+
+sources:
+  himalayas:
+    enabled: false
+    mode: api_feed
+    endpoint: https://himalayas.app/jobs/api/search
+    user_agent: job-assistant/0.1 (+local single-user batch)
+  jobicy:
+    enabled: false
+    mode: api_feed
+    endpoint: https://jobicy.com/api/v2/remote-jobs
+    count: 100
+    user_agent: job-assistant/0.1 (+local single-user batch)
+  headhunter:
+    enabled: true
+    mode: api_search
+    endpoint: https://api.hh.ru/vacancies
+    per_page: 100
+    user_agent: "job-assistant/0.1 (local single-user batch)"
+    require_authentication: false
+    access_token_env: HH_ACCESS_TOKEN
+    user_agent_env: HH_USER_AGENT
+    search_strings:
+      - '("business analyst" OR "systems analyst" OR "system analyst" OR "requirements analyst" OR "integration analyst" OR "jira administrator" OR "confluence administrator" OR "atlassian administrator")'
+      - '("бизнес аналитик" OR "бизнес-аналитик" OR "системный аналитик" OR "аналитик требований" OR "аналитик интеграций" OR "администратор jira" OR "администратор confluence" OR "администратор atlassian")'
+    samples:
+      - name: remote
+        enabled: true
+        host: hh.ru
+        schedule: remote
+        work_formats:
+          - REMOTE
+        search_field: name
+      - name: tbilisi_onsite_hybrid
+        enabled: true
+        host: headhunter.ge
+        area: 2758
+        work_formats:
+          - ON_SITE
+          - HYBRID
+        search_field: name
+  jooble:
+    enabled: false
+    mode: api_search
+    pages_to_fetch: 1
+    result_on_page: 50
+    requires_env:
+      - JOOBLE_API_KEY
+  arbeitnow:
+    enabled: false
+    mode: api_feed
+    pages_to_fetch: 10
+  greenhouse:
+    enabled: false
+    mode: target_company_only
+    company_config: config/target_companies.yaml
+  lever:
+    enabled: false
+    mode: target_company_only
+    company_config: config/target_companies.yaml
+  email:
+    enabled: true
+    mode: imap_read_only
+  linkedin:
+    enabled: false
+    mode: manual_current_page_only
+
+queries:
+  primary:
+    - Business Analyst
+    - Systems Analyst
+    - System Analyst
+    - Business Systems Analyst
+    - Technical Business Analyst
+    - Requirements Analyst
+    - Product Analyst
+    - Implementation Analyst
+    - Solutions Analyst
+    - Integration Analyst
+    - API Integration Analyst
+    - Jira Administrator
+    - Confluence Administrator
+    - Jira Confluence Administrator
+    - Atlassian Administrator
+    - Atlassian Consultant
+    - Jira Consultant
+    - Confluence Consultant
+  primary_ru:
+    - Бизнес-аналитик
+    - Бизнес аналитик
+    - Системный аналитик
+    - Бизнес-системный аналитик
+    - Аналитик требований
+    - Аналитик интеграций
+    - Интеграционный аналитик
+    - Администратор Jira
+    - Администратор Confluence
+    - Администратор Atlassian
+    - Консультант Atlassian
+  low_priority:
+    - Product Manager
+    - Менеджер продукта
+    - Продуктовый менеджер
+  excluded_target_titles:
+    - Product Owner
+
+languages:
+  accepted:
+    - en
+    - ru
+    - de
+  international_english_bonus: 0
+  russian_penalty: 0
+
+location:
+  remote_allowed: true
+  timezone_filter_enabled: false
+  onsite_hybrid_allowed_cities:
+    - Tbilisi
+    - Тбилиси
+  remote_keywords:
+    - remote
+    - remotely
+    - distributed
+    - work from home
+    - удаленно
+    - удалённо
+  onsite_keywords:
+    - onsite
+    - on-site
+    - office-based
+    - in office
+    - в офисе
+  hybrid_keywords:
+    - hybrid
+    - гибрид
+
+blockers:
+  developer_titles:
+    - developer
+    - engineer
+    - software engineer
+    - software developer
+    - backend developer
+    - frontend developer
+    - full stack
+    - devops
+    - data engineer
+  developer_component_keywords:
+    - business analyst
+    - systems analyst
+    - system analyst
+    - requirements
+    - product analyst
+    - jira
+    - confluence
+    - atlassian
+    - systemanalyst
+    - prozessanalyst
+    - anforderungsmanager
+    - requirements engineer
+    - business process analyst
+    - it-prozessmanager
+    - applikationsmanager
+    - integration analyst
+  sales_titles:
+    - sales manager
+    - account executive
+    - business development representative
+  support_titles:
+    - customer support
+    - support specialist
+    - help desk
+  citizenship_patterns:
+    - citizenship required
+    - must be a citizen of
+    - only citizens of
+  non_blocking_work_auth_countries:
+    - Georgia
+    - Грузия
+  work_auth_patterns:
+    - work authorization in
+    - authorized to work in
+    - right to work in
+
+role_relevance:
+  relevant_title_keywords:
+    - business analyst
+    - business systems analyst
+    - business system analyst
+    - systems analyst
+    - system analyst
+    - technical business analyst
+    - requirements analyst
+    - product analyst
+    - solutions analyst
+    - solution analyst
+    - integration analyst
+    - api integration analyst
+    - jira
+    - confluence
+    - atlassian
+  irrelevant_title_keywords:
+    - software engineer
+    - software developer
+    - frontend
+    - backend
+    - full stack
+    - mobile developer
+    - data scientist
+    - designer
+    - marketing manager
+    - account executive
+    - sales
+    - customer support
+    - recruiter
+    - nurse
+    - physician
+    - accountant
+    - copywriter
+  signal_groups:
+    ba_sa_requirements:
+      - requirements gathering
+      - requirements analysis
+      - functional requirements
+      - business analysis
+      - systems analysis
+      - user stories
+      - use cases
+      - acceptance criteria
+      - требования
+    modeling:
+      - bpmn
+      - uml
+      - process modeling
+      - process modelling
+      - моделирование
+      - бизнес-процесс
+    systems_analysis:
+      - systems analysis
+      - system analysis
+      - системный анализ
+      - системного анализа
+    atlassian_admin:
+      - jira administration
+      - confluence administration
+      - atlassian administration
+      - custom fields
+      - permissions
+      - workflows
+      - schemes
+      - администратор jira
+      - администратор confluence
+    integration_api:
+      - api
+      - rest
+      - soap
+      - integration
+      - integrations
+      - интеграц
+    technical_documentation:
+      - brd
+      - frd
+      - srs
+      - technical documentation
+      - specifications
+      - документац
+    sql_data_analysis:
+      - sql
+      - data analysis
+      - аналитика данных
+
+scoring:
+  title_adjustments:
+    product_owner: -20
+  keyword_groups:
+    jira_admin:
+      weight: 40
+      keywords:
+        - jira administration
+        - confluence administration
+        - atlassian administration
+        - workflows
+        - schemes
+        - permissions
+        - roles
+        - custom fields
+        - automation
+        - user management
+        - migrations
+        - integrations
+        - spaces
+        - access control
+        - system configuration
+    jira_user:
+      weight: 20
+      keywords:
+        - jira
+        - confluence
+        - atlassian
+    modeling:
+      weight: 20
+      keywords:
+        - bpmn
+        - uml
+        - process modelling
+        - process modeling
+        - business-process modelling
+        - systems modelling
+        - моделирование процессов
+        - бизнес-процесс
+    core_ba_sa:
+      weight: 20
+      keywords:
+        - requirements gathering
+        - requirements analysis
+        - user stories
+        - use cases
+        - acceptance criteria
+        - functional requirements
+        - non-functional requirements
+        - stakeholder management
+        - business analysis
+        - systems analysis
+    integrations:
+      weight: 15
+      keywords:
+        - systems integrations
+        - system integration
+        - inter-system interaction
+        - cross-functional technical analysis
+        - liaison between business and development
+    documentation:
+      weight: 15
+      keywords:
+        - brd
+        - frd
+        - srs
+        - specifications
+        - technical assignments
+        - knowledge base
+        - user manuals
+        - process documentation
+        - technical documentation
+    data:
+      weight: 10
+      keywords:
+        - sql
+        - jql
+        - postgresql
+        - ms sql server
+        - reporting
+        - dashboards
+        - tableau
+        - power bi
+        - data analysis
+    domain:
+      weight: 10
+      keywords:
+        - fintech
+        - payments
+        - payment gateways
+        - erp
+        - enterprise internal systems
+        - document-management systems
+    ai:
+      weight: 10
+      keywords:
+        - ai
+        - llm
+        - generative ai
+        - ai-assisted documentation
+        - ai productivity
+    api:
+      weight: 5
+      keywords:
+        - rest
+        - soap
+        - api contracts
+        - openapi
+        - swagger
+        - postman
+        - json
+        - xml
+        - event-driven integrations
+        - kafka
+        - rabbitmq
+        - redpanda
+    crypto_gambling:
+      weight: -10
+      keywords:
+        - crypto
+        - cryptocurrency
+        - blockchain
+        - gambling
+        - betting
+        - casino
+    junior:
+      weight: -15
+      keywords:
+        - junior
+        - младший
+    internship:
+      weight: -25
+      keywords:
+        - internship
+        - intern
+        - стажер
+        - стажёр
+
+outputs:
+  directory: output
+  raw_file: headhunter_raw.json
+  normalized_file: jobs_normalized.json
+  csv_file: jobs.csv
+  shortlist_file: shortlist.md
+  blocked_file: blocked_jobs.md
+  summary_file: run_summary.json
+  combined_json_file: combined_jobs.json
+  combined_csv_file: combined_jobs.csv
+  combined_shortlist_file: combined_shortlist.md
+  source_status_file: source_status.json
+  manual_imports_file: manual_imports.json
+  source_quality_file: source_quality.json
+  email_candidates_file: email_candidates.json
+  linkedin_email_queue_file: linkedin_email_queue.md
+  email_state_file: email_state.json

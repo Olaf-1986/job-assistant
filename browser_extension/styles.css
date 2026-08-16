@@ -1,0 +1,33 @@
+body {
+  color: #151515;
+  font: 14px/1.4 system-ui, sans-serif;
+  min-width: 260px;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+button, select, input {
+  font: inherit;
+  padding: 8px;
+}
+
+button {
+  background: #1b5cff;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+}
+
+#status {
+  min-height: 20px;
+}

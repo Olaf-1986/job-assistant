@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Job Assistant Options</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>Capture Token</h1>
+      <p>Start `uv run python -m job_assistant capture-server`, then paste the local token from `data/capture_token`.</p>
+      <input id="token" type="password" autocomplete="off" spellcheck="false">
+      <button id="save">Save Token</button>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

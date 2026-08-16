@@ -1,0 +1,17 @@
+From: alerts@example.test
+To: user@example.test
+Subject: Duplicate job alert
+Message-ID: <alert-duplicate@example.test>
+Date: Tue, 04 Aug 2026 11:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Title: Business Analyst
+Company: LinkedIn Acme
+Location: Remote
+https://linkedin.com/jobs/view/111?trackingId=duplicate
+
+Title: Systems Analyst
+Company: HH Acme
+Location: Tbilisi
+https://hh.ru/vacancy/123?from=email

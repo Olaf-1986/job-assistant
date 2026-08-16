@@ -1,0 +1,41 @@
+From: alerts@example.test
+To: user@example.test
+Subject: Job alerts for analysts
+Message-ID: <alert-1@example.test>
+Date: Tue, 04 Aug 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alert-boundary"
+
+--alert-boundary
+Content-Type: text/plain; charset="utf-8"
+
+Title: Business Analyst
+Company: LinkedIn Acme
+Location: Remote
+https://www.linkedin.com/jobs/view/111?trk=job-alert&foo=bar
+
+Title: Systems Analyst
+Company: HH Acme
+Location: Tbilisi
+https://headhunter.ge/vacancy/123?from=email&utm_source=alert
+
+Untrusted:
+https://example.com/jobs/view/999
+https://linkedin.com/company/acme
+
+--alert-boundary
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>Title: Business Analyst</p>
+<p>Company: LinkedIn Acme</p>
+<p>Location: Remote</p>
+<a href="https://www.linkedin.com/jobs/view/111?trk=job-alert">Business Analyst</a>
+<p>Title: Systems Analyst</p>
+<p>Company: HH Acme</p>
+<p>Location: Tbilisi</p>
+<a href="https://headhunter.ge/vacancy/123?from=email">Systems Analyst</a>
+<a href="https://evil.test/redirect?url=https://hh.ru/vacancy/555">Bad redirect</a>
+</body></html>
+
+--alert-boundary--
