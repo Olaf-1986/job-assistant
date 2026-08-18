@@ -18,8 +18,8 @@ from dotenv import dotenv_values
 
 from .config import Preferences
 from .connectors.headhunter import HeadHunterConnector
-from .export import output_paths
 from .models import BatchStats, RawRecord
+from .paths import output_paths
 from .utils import ROOT, canonical_url, normalize_space, read_json, write_json
 from .linkedin_queue import LEGACY_PENDING_STATUS, PENDING_STATUS, PENDING_STATUSES
 

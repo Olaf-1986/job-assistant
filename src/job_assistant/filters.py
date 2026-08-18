@@ -9,27 +9,34 @@ from .utils import lower_text
 
 
 COUNTRY_RE = re.compile(r"(?:citizen(?:ship)?(?: of)?|citizen of|authorized to work in|work authorization in|right to work in)\s+(?:a\s+)?([A-Z][A-Za-z .-]+)", re.IGNORECASE)
+ADJACENT_ROLE_TITLES = ("analyst", "administrator", "consultant", "specialist")
+EXPLICIT_IRRELEVANT_TITLES = ("nurse", "physician", "doctor", "surgeon", "medical assistant")
 
 
 def apply_role_relevance(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
     title = (vacancy.title or "")
     text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text)
-    reasons: list[str] = []
-    if any(contains_phrase(title, term) for term in preferences.role_relevance.irrelevant_title_keywords):
-        reasons.append("clearly irrelevant profession before scoring")
+    irrelevant_terms = [*preferences.role_relevance.irrelevant_title_keywords, *EXPLICIT_IRRELEVANT_TITLES]
+    explicit_irrelevant = any(contains_phrase(title, term) for term in irrelevant_terms)
+    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.developer_titles)
+    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.sales_titles)
+    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.support_titles)
+    if explicit_irrelevant:
+        reason = "clearly irrelevant profession before description evaluation"
+        vacancy.blocker_reasons = sorted(set([*vacancy.blocker_reasons, reason]))
+        vacancy.blocker = True
+        vacancy.role_relevance_breakdown = [reason]
     elif _target_title_match(title, preferences):
         vacancy.role_relevance_breakdown = ["title matches configured target title"]
-        return vacancy
-    else:
+    elif any(contains_phrase(title, term) for term in ADJACENT_ROLE_TITLES) and _has_explicit_analyst_duties(text, preferences):
         matched_groups = _matched_strong_groups(text, preferences)
-        if _unambiguous_description_role(text, matched_groups):
-            vacancy.role_relevance_breakdown = [f"description has unambiguous analyst/admin duties: {', '.join(sorted(set(matched_groups)))}"]
-            return vacancy
-        reasons.append("manual review required: no target title and description-only relevance is not unambiguous")
-    if reasons:
-        vacancy.blocker_reasons = sorted(set([*vacancy.blocker_reasons, *reasons]))
+        vacancy.requires_manual_role_review = True
+        vacancy.role_relevance_breakdown = [f"adjacent title with explicit BA/SA duties: {', '.join(matched_groups)}"]
+    else:
+        reason = "title is neither a configured target nor a reviewable adjacent role"
+        vacancy.blocker_reasons = sorted(set([*vacancy.blocker_reasons, reason]))
         vacancy.blocker = True
-        vacancy.role_relevance_breakdown = reasons
+        vacancy.role_relevance_breakdown = [reason]
     return vacancy
 
 
@@ -55,10 +62,9 @@ def _matched_strong_groups(text: str, preferences: Preferences) -> list[str]:
     return sorted(set(matched_groups))
 
 
-def _unambiguous_description_role(text: str, matched_groups: list[str]) -> bool:
-    groups = set(matched_groups)
-    strong_groups = {"ba_sa_requirements", "systems_analysis", "modeling", "integration_api", "atlassian_admin", "sql_data_analysis", "technical_documentation"}
-    return len(groups & strong_groups) >= 2
+def _has_explicit_analyst_duties(text: str, preferences: Preferences) -> bool:
+    groups = set(_matched_strong_groups(text, preferences))
+    return bool(groups & {"ba_sa_requirements", "systems_analysis", "atlassian_admin"})
 
 
 def _is_atlassian_admin(text: str) -> bool:

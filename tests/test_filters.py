@@ -5,7 +5,7 @@ from job_assistant.filters import apply_filters, apply_hard_blockers, contains_p
 from job_assistant.language import detect_language, has_explicit_german_requirement
 from job_assistant.location import detect_work_mode
 from job_assistant.normalize import normalize_record
-from tests.fixtures.himalayas_records import BUSINESS_ANALYST, FOREIGN_CITIZENSHIP, GEORGIAN_AUTH, HYBRID_TBILISI, ONSITE_OUTSIDE_TBILISI, PURE_DEVELOPER
+from tests.fixtures.vacancy_records import BUSINESS_ANALYST, FOREIGN_CITIZENSHIP, GEORGIAN_AUTH, HYBRID_TBILISI, ONSITE_OUTSIDE_TBILISI, PURE_DEVELOPER
 
 
 def normalized(raw):
@@ -31,7 +31,7 @@ def test_tbilisi_hybrid_and_georgian_work_auth_are_not_blocked():
 def test_generic_work_auth_compensation_sentence_is_not_blocked():
     raw = {
         **BUSINESS_ANALYST,
-        "description": "<p>Remote role. Applicants must be authorized to work in the location. The salary for this role is competitive.</p>",
+        "jobDescription": "<p>Remote role. Applicants must be authorized to work in the location. The salary for this role is competitive.</p>",
     }
     vacancy = normalized(raw)
     assert vacancy.blocker is False
@@ -57,7 +57,7 @@ def test_german_language_and_requirement_detection():
 
 def test_explicit_german_requirement_blocks():
     preferences = load_preferences()
-    vacancy = normalize_record({**BUSINESS_ANALYST, "description": "<p>Requirements analysis. Fließend Deutsch erforderlich.</p>"}, "Business Analyst", preferences)
+    vacancy = normalize_record({**BUSINESS_ANALYST, "jobDescription": "<p>Requirements analysis. Fließend Deutsch erforderlich.</p>"}, "Business Analyst", preferences)
     assert vacancy is not None
     filtered = apply_filters([vacancy], preferences)[0]
     assert filtered.blocker is True
@@ -66,18 +66,43 @@ def test_explicit_german_requirement_blocks():
 
 def test_bare_atlassian_engineering_title_stays_blocked():
     preferences = load_preferences()
-    vacancy = normalize_record({**BUSINESS_ANALYST, "title": "Atlassian Platform Engineer", "description": "<p>Build internal platform with Jira integrations.</p>"}, "Atlassian", preferences)
+    vacancy = normalize_record({**BUSINESS_ANALYST, "jobTitle": "Atlassian Platform Engineer", "jobDescription": "<p>Build internal platform with Jira integrations.</p>"}, "Atlassian", preferences)
     assert vacancy is not None
     filtered = apply_filters([vacancy], preferences)[0]
     assert filtered.blocker is True
     assert "pure developer or engineering role" in filtered.blocker_reasons
 
 
-def test_description_only_relevance_requires_two_strong_groups():
+def test_adjacent_title_with_explicit_analyst_duties_requires_role_review():
     preferences = load_preferences()
-    weak = normalize_record({**BUSINESS_ANALYST, "title": "Operations Specialist", "description": "<p>Requirements gathering with stakeholders.</p>"}, "Business Analyst", preferences)
-    strong = normalize_record({**BUSINESS_ANALYST, "title": "Operations Specialist", "description": "<p>Requirements gathering, BPMN and API integrations.</p>"}, "Business Analyst", preferences)
+    weak = normalize_record({**BUSINESS_ANALYST, "jobTitle": "Operations Specialist", "jobDescription": "<p>Requirements gathering with stakeholders.</p>"}, "Business Analyst", preferences)
+    strong = normalize_record({**BUSINESS_ANALYST, "jobTitle": "Operations Specialist", "jobDescription": "<p>Requirements gathering, BPMN and API integrations.</p>"}, "Business Analyst", preferences)
     assert weak is not None
     assert strong is not None
-    assert apply_filters([weak], preferences)[0].blocker is True
-    assert apply_filters([strong], preferences)[0].blocker is False
+    assert apply_filters([weak], preferences)[0].requires_manual_role_review is True
+    reviewed = apply_filters([strong], preferences)[0]
+    assert reviewed.blocker is False
+    assert reviewed.requires_manual_role_review is True
+
+
+def test_role_relevance_three_state_regressions():
+    preferences = load_preferences()
+
+    def classify(title: str, description: str):
+        vacancy = normalize_record({**BUSINESS_ANALYST, "jobTitle": title, "jobDescription": f"<p>{description}</p>"}, "Business Analyst", preferences)
+        assert vacancy is not None
+        return apply_filters([vacancy], preferences)[0]
+
+    ai_manager = classify("AI Operations Manager", "Requirements, Jira, SQL, API integrations and documentation.")
+    developer = classify("Software Developer", "Business analysis, requirements gathering, user stories and BPMN.")
+    operations = classify("Operations Analyst", "Elicit and analyze functional requirements with stakeholders.")
+    finance = classify("Finance System Analyst", "Support financial production systems.")
+    business = classify("Business Analyst", "Requirements gathering.")
+    atlassian = classify("Atlassian Administrator", "Administer Jira workflows and permissions.")
+
+    assert ai_manager.blocker and not ai_manager.requires_manual_role_review
+    assert developer.blocker and not developer.requires_manual_role_review
+    assert not operations.blocker and operations.requires_manual_role_review
+    assert not finance.blocker and not finance.requires_manual_role_review
+    assert not business.blocker and not business.requires_manual_role_review
+    assert not atlassian.blocker and not atlassian.requires_manual_role_review

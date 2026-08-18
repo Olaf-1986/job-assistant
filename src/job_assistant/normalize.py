@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -34,7 +34,15 @@ def html_to_text(html: str | None) -> str | None:
 
 
 def parse_datetime(value: Any) -> datetime | None:
-    if not value or not isinstance(value, str):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            seconds = float(value) / 1000 if abs(float(value)) >= 10_000_000_000 else float(value)
+            return datetime.fromtimestamp(seconds, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(value, str):
         return None
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -63,7 +71,7 @@ def parse_optional_float(value: Any, field_name: str, warnings: list[str]) -> fl
         return float(value)
     except (TypeError, ValueError):
         warnings.append(f"invalid numeric value for {field_name}: {value!r}")
-        LOGGER.warning("Invalid numeric value for %s in Himalayas record: %r", field_name, value)
+        LOGGER.warning("Invalid numeric value for %s: %r", field_name, value)
         return None
 
 
@@ -85,7 +93,8 @@ def normalize_record(record: RawRecord, query: str, preferences: Preferences) ->
         return _normalize_headhunter_record(record, query, preferences)
     if _is_jobicy_record(record):
         return _normalize_jobicy_record(record, query, preferences)
-    return _normalize_himalayas_record(record, query, preferences)
+    LOGGER.warning("Skipping record from an unknown source: %s", source)
+    return None
 
 
 def _base_vacancy(source: str, source_id: str | None, query: str, title: str, company: str | None, description_html: str | None, description_text: str | None, excerpt: str | None, location: str | None, url: str | None, preferences: Preferences, **extra: Any) -> NormalizedVacancy:
@@ -300,63 +309,6 @@ def _normalize_manual_capture_record(record: RawRecord, query: str, preferences:
     visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else ""
     text = selected.strip() or visible.strip() or page_title
     return _base_vacancy(source_label, str(record.get("page_url") or "") or None, query, page_title, company, None, text, text, None, record.get("page_url") if isinstance(record.get("page_url"), str) else None, preferences, imported_manually=True, source_metadata={"hostname": record.get("hostname"), "captured_at": record.get("captured_at"), "document_title": record.get("document_title")})
-
-
-def _normalize_himalayas_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
-    warnings: list[str] = []
-    title = record.get("title")
-    if not isinstance(title, str) or not title.strip():
-        LOGGER.warning("Skipping malformed record without a title: %s", record)
-        return None
-    source_id = record.get("guid") or record.get("id") or record.get("slug")
-    if source_id is not None and not isinstance(source_id, str):
-        source_id = str(source_id)
-    if not source_id:
-        warnings.append("missing source id")
-    description_html = record.get("description") if isinstance(record.get("description"), str) else None
-    description_text = html_to_text(description_html)
-    excerpt = record.get("excerpt") if isinstance(record.get("excerpt"), str) else None
-    text_for_detection = "\n".join([title, excerpt or "", description_text or ""])
-    language = detect_language(text_for_detection)
-    if language not in preferences.languages.accepted:
-        warnings.append(f"unaccepted detected language: {language}")
-    location_restrictions = as_list(record.get("locationRestrictions"))
-    timezone_restrictions = as_list(record.get("timezoneRestrictions"))
-    location_text = "\n".join([*location_restrictions, text_for_detection])
-    work_mode = detect_work_mode(location_text, preferences)
-    detected_city = detect_allowed_city(location_text, preferences)
-    application_url = canonical_url(record.get("applicationLink") if isinstance(record.get("applicationLink"), str) else None)
-    raw_urls = [application_url] if application_url else []
-    return NormalizedVacancy(
-        source="himalayas",
-        source_id=source_id,
-        source_queries=[query],
-        title=normalize_space(title),
-        normalized_title=slugify_text(title),
-        company=record.get("companyName") if isinstance(record.get("companyName"), str) else None,
-        company_slug=record.get("companySlug") if isinstance(record.get("companySlug"), str) else None,
-        description_html=description_html,
-        description_text=description_text,
-        excerpt=excerpt,
-        employment_type=record.get("employmentType") if isinstance(record.get("employmentType"), str) else None,
-        seniority=record.get("seniority") if isinstance(record.get("seniority"), str) else None,
-        categories=as_list(record.get("categories")) + as_list(record.get("parentCategories")),
-        location_restrictions=location_restrictions,
-        timezone_restrictions=timezone_restrictions,
-        salary_min=parse_optional_float(record.get("minSalary"), "minSalary", warnings),
-        salary_max=parse_optional_float(record.get("maxSalary"), "maxSalary", warnings),
-        salary_currency=record.get("currency") if isinstance(record.get("currency"), str) else None,
-        salary_period=record.get("salaryPeriod") if isinstance(record.get("salaryPeriod"), str) else None,
-        publication_date=parse_datetime(record.get("pubDate")),
-        expiry_date=parse_datetime(record.get("expiryDate")),
-        application_url=application_url,
-        fetched_at=utc_now(),
-        detected_language=language,
-        work_mode=work_mode,
-        detected_city=detected_city,
-        warnings=warnings,
-        raw_application_urls=raw_urls,
-    )
 
 
 def _is_jobicy_record(record: RawRecord) -> bool:

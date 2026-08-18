@@ -4,10 +4,11 @@ from typing import Any
 
 from .config import Preferences
 from .deduplicate import deduplicate_vacancies
-from .export import export_all, output_paths
+from .export import export_all
 from .filters import apply_filters
 from .models import BatchStats, RawRecord
 from .normalize import normalize_records
+from .paths import output_paths
 from .scoring import score_vacancies
 from .utils import read_json
 

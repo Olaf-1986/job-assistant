@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+import fastapi.routing
+import httpx
+import pytest
 from typer.testing import CliRunner
 
 from job_assistant.ats import discover_greenhouse_board_token, discover_lever_site
@@ -18,6 +21,23 @@ from tests.fixtures.headhunter_records import HEADHUNTER_RESPONSE
 
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def run_fastapi_sync_endpoints_inline(monkeypatch):
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(fastapi.routing, "run_in_threadpool", run_inline)
+
+
+def post_to_app(app, url: str, **kwargs) -> httpx.Response:
+    async def post() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await asyncio.wait_for(client.post(url, **kwargs), timeout=5)
+
+    return asyncio.run(post())
 
 
 def temp_preferences(tmp_path: Path):
@@ -45,7 +65,7 @@ def test_capture_endpoint_authentication_payload_and_explicit_title_company(monk
     token_path = tmp_path / "token"
     token_path.write_text("secret", encoding="utf-8")
     monkeypatch.setattr("job_assistant.capture.TOKEN_PATH", token_path)
-    client = TestClient(create_app())
+    capture_app = create_app()
     payload = {
         "page_url": "https://linkedin.test/jobs/1",
         "document_title": "Fallback Browser Title",
@@ -57,10 +77,10 @@ def test_capture_endpoint_authentication_payload_and_explicit_title_company(monk
         "captured_at": "2026-01-01T00:00:00Z",
         "source_label": "linkedin",
     }
-    assert client.post("/api/v1/manual-capture", json=payload).status_code == 401
+    assert post_to_app(capture_app, "/api/v1/manual-capture", json=payload).status_code == 401
     bad_payload = {**payload, "page_url": "file:///tmp/x"}
-    assert client.post("/api/v1/manual-capture", json=bad_payload, headers={"x-job-assistant-token": "secret"}).status_code == 422
-    assert client.post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"}).status_code == 200
+    assert post_to_app(capture_app, "/api/v1/manual-capture", json=bad_payload, headers={"x-job-assistant-token": "secret"}).status_code == 422
+    assert post_to_app(capture_app, "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"}).status_code == 200
 
     combined = read_json(preferences.outputs.output_dir() / preferences.outputs.combined_json_file)
     assert combined[0]["source"] == "linkedin"
@@ -79,7 +99,7 @@ def test_linkedin_queue_capture_matches_by_job_id_and_updates_status(monkeypatch
     monkeypatch.setattr("job_assistant.capture.open_next_pending", lambda prefs: {"opened": False, "queue_id": None, "url": None, "error": None})
 
     payload = {"page_url": "https://www.linkedin.com/jobs/view/111/?trk=email", "document_title": "LinkedIn Analyst", "vacancy_title": "LinkedIn Analyst", "company": "Queue Co", "visible_text": "Business Analyst requirements analysis BPMN API integrations.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
-    result = TestClient(create_app()).post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    result = post_to_app(create_app(), "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert result.status_code == 200
     assert result.json()["queue"]["matched"] is True
@@ -100,10 +120,10 @@ def test_linkedin_queue_duplicate_capture_does_not_append_again(monkeypatch, tmp
     write_json(preferences.outputs.output_dir() / preferences.outputs.email_candidates_file, [{"source": "linkedin", "external_id": "222", "title": "LinkedIn Analyst", "company": None, "location": None, "canonical_url": "https://www.linkedin.com/jobs/view/222", "received_at": None, "message_id": "m2", "status": "pending"}])
     monkeypatch.setattr("job_assistant.capture.open_next_pending", lambda prefs: {"opened": False, "queue_id": None, "url": None, "error": None})
     payload = {"page_url": "https://www.linkedin.com/jobs/view/222", "document_title": "LinkedIn Analyst", "vacancy_title": "LinkedIn Analyst", "company": "Acme", "visible_text": "Business Analyst requirements analysis BPMN API integrations.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
-    client = TestClient(create_app())
+    capture_app = create_app()
 
-    first = client.post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
-    second = client.post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    first = post_to_app(capture_app, "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    second = post_to_app(capture_app, "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert first.json()["status"] == "saved"
     assert second.json()["status"] == "duplicate"
@@ -122,7 +142,7 @@ def test_linkedin_queue_unmatched_capture_preserves_queue_and_imports(monkeypatc
     write_json(candidates_path, candidates)
     payload = {"page_url": "https://www.linkedin.com/jobs/view/999", "document_title": "Other Analyst", "vacancy_title": "Other Analyst", "company": "Acme", "visible_text": "Business Analyst requirements analysis BPMN API integrations.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
 
-    result = TestClient(create_app()).post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    result = post_to_app(create_app(), "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert result.status_code == 200
     assert result.json()["queue"]["matched"] is False
@@ -142,7 +162,7 @@ def test_linkedin_queue_capture_invokes_pipeline(monkeypatch, tmp_path):
     monkeypatch.setattr("job_assistant.capture.rebuild_from_authoritative_sources", lambda prefs, stats: calls.append((prefs, stats)) or {})
     payload = {"page_url": "https://www.linkedin.com/jobs/view/444", "document_title": "Queued", "vacancy_title": "Queued", "company": "Acme", "visible_text": "Business Analyst requirements analysis BPMN API integrations.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
 
-    result = TestClient(create_app()).post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    result = post_to_app(create_app(), "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert result.status_code == 200
     assert len(calls) == 1
@@ -163,7 +183,7 @@ def test_linkedin_capture_processed_blocked_outcome_and_opens_next(monkeypatch, 
     monkeypatch.setattr("job_assistant.linkedin_queue.open_url_default_browser", lambda url: (True, None))
     payload = {"page_url": "https://www.linkedin.com/jobs/view/555", "document_title": "Software Developer", "vacancy_title": "Software Developer", "company": "Acme", "visible_text": "Python developer engineer coding implementation.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
 
-    result = TestClient(create_app()).post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    result = post_to_app(create_app(), "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert result.status_code == 200, result.text
     body = result.json()
@@ -190,7 +210,7 @@ def test_linkedin_capture_preserves_processed_result_when_next_open_fails(monkey
     monkeypatch.setattr("job_assistant.linkedin_queue.open_url_default_browser", lambda url: (False, "mock failure"))
     payload = {"page_url": "https://www.linkedin.com/jobs/view/777", "document_title": "LinkedIn Analyst", "vacancy_title": "LinkedIn Analyst", "company": "Acme", "visible_text": "Business Analyst requirements analysis BPMN API integrations.", "selected_text": "", "hostname": "www.linkedin.com", "captured_at": "2026-01-02T00:00:00Z", "source_label": "linkedin"}
 
-    result = TestClient(create_app()).post("/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
+    result = post_to_app(create_app(), "/api/v1/manual-capture", json=payload, headers={"x-job-assistant-token": "secret"})
 
     assert result.status_code == 200, result.text
     body = result.json()

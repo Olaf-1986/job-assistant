@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Preferences
-from .export import output_paths
+from .paths import output_paths
 from .utils import read_json
 
 LINKEDIN_JOB_RE = re.compile(r"/jobs/view/(\d+)")

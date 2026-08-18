@@ -10,14 +10,13 @@ from .models import SourceStatus
 from .utils import read_json, utc_now, write_json
 
 
-SOURCE_NAMES = ["headhunter", "email", "linkedin", "arbeitnow", "jooble", "himalayas", "jobicy", "greenhouse", "lever"]
+SOURCE_NAMES = ["headhunter", "email", "linkedin", "arbeitnow", "jooble", "jobicy", "greenhouse", "lever"]
 SOURCE_PRIORITIES = {
     "headhunter": "primary",
     "email": "read_only_alert_ingestion",
     "linkedin": "manual_current_page_only",
     "arbeitnow": "disabled",
     "jooble": "disabled",
-    "himalayas": "disabled",
     "jobicy": "disabled",
     "greenhouse": "disabled",
     "lever": "disabled",

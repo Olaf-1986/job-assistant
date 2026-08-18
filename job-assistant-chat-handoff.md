@@ -13,7 +13,7 @@
 
 Habr and Wellfound are removed from the active project. Do not restore browser-source configuration, Playwright logic, browser login, browser profiles, auth state, fixtures, outputs, or current documentation for them.
 
-Legacy disabled Arbeitnow, Jooble, Himalayas, Jobicy, Greenhouse, and Lever code may remain, but must never enter `fetch-all`.
+Legacy disabled Arbeitnow, Jooble, Jobicy, Greenhouse, and Lever code may remain, but must never enter `fetch-all`. Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are deprecated legacy sources and have been removed from active code and configuration.
 
 ## Persistence Rules
 

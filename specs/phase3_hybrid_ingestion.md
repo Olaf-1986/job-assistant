@@ -14,7 +14,7 @@ Active project scope is HeadHunter plus manual LinkedIn capture.
 
 Habr and Wellfound are not active sources. Do not keep Habr/Wellfound connectors, browser config, browser login, Playwright auth/profile logic, fixtures, tests, outputs, or current documentation.
 
-Legacy disabled Arbeitnow, Jooble, Himalayas, Jobicy, Greenhouse, and Lever code may remain, but must never enter `fetch-all`.
+Legacy disabled Arbeitnow, Jooble, Jobicy, Greenhouse, and Lever code may remain, but must never enter `fetch-all`. Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are deprecated legacy sources and have been removed from active code and configuration.
 
 ## Persistence
 

@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from .config import Preferences, load_preferences
-from .export import output_paths
 from .linkedin_queue import LinkedInQueueError, linkedin_job_id, linkedin_pipeline_outcome, manual_import_has_linkedin_job, open_next_pending, update_queue_after_capture, update_queue_processed
 from .models import BatchStats
+from .paths import output_paths
 from .persistence import rebuild_from_authoritative_sources
 from .utils import ROOT, read_json, write_json
 

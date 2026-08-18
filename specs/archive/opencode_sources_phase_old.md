@@ -1,3 +1,5 @@
+> Archived specification: Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are deprecated legacy sources removed from active code and configuration. References below are historical only.
+
 # Phase 2: production-quality vacancy sources
 
 You are working inside the existing project:

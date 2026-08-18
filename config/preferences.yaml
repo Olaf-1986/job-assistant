@@ -10,11 +10,6 @@ future_llm:
   enabled: false
 
 sources:
-  himalayas:
-    enabled: false
-    mode: api_feed
-    endpoint: https://himalayas.app/jobs/api/search
-    user_agent: job-assistant/0.1 (+local single-user batch)
   jobicy:
     enabled: false
     mode: api_feed
@@ -31,7 +26,7 @@ sources:
     access_token_env: HH_ACCESS_TOKEN
     user_agent_env: HH_USER_AGENT
     search_strings:
-      - '("business analyst" OR "systems analyst" OR "system analyst" OR "requirements analyst" OR "integration analyst" OR "jira administrator" OR "confluence administrator" OR "atlassian administrator")'
+      - '("business analyst" OR "business system analyst" OR "business systems analyst" OR "systems analyst" OR "system analyst" OR "requirements analyst" OR "integration analyst" OR "jira administrator" OR "confluence administrator" OR "atlassian administrator")'
       - '("бизнес аналитик" OR "бизнес-аналитик" OR "системный аналитик" OR "аналитик требований" OR "аналитик интеграций" OR "администратор jira" OR "администратор confluence" OR "администратор atlassian")'
     samples:
       - name: remote
@@ -78,6 +73,7 @@ sources:
 queries:
   primary:
     - Business Analyst
+    - Business System Analyst
     - Systems Analyst
     - System Analyst
     - Business Systems Analyst

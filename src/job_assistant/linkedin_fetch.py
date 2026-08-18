@@ -11,8 +11,8 @@ from bs4 import BeautifulSoup
 
 from .capture import ManualCapturePayload, process_manual_capture
 from .config import Preferences
-from .connectors.headhunter import _cheap_title_prefilter
 from .linkedin_queue import PENDING_STATUSES, canonical_linkedin_url, linkedin_job_id, load_queue, update_queue_processed, validate_linkedin_queue
+from .role_relevance import title_prefilter_matches
 from .utils import ROOT, normalize_space
 
 PROFILE_DIR = ROOT / "data" / "browser_profiles" / "linkedin"
@@ -103,7 +103,7 @@ def fetch_pending_linkedin(preferences: Preferences, limit: int = 5, dry_run: bo
                 continue
             job_id = str(item.get("external_id") or "")
             title = str(item.get("title") or "")
-            if not _cheap_title_prefilter(title, preferences.role_relevance.relevant_title_keywords):
+            if not title_prefilter_matches(title, preferences.role_relevance.relevant_title_keywords):
                 stats["skipped_title"] += 1
                 processed += 1
                 if not dry_run and job_id:

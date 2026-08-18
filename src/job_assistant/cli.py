@@ -22,11 +22,11 @@ from .connectors.lever import LeverConnector
 from .connectors.jobicy import JobicyConnector
 from .ats import discover_greenhouse_board_token, discover_lever_site
 from .capture import run_capture_server
-from .export import output_paths
 from .email_ingestion import sync_email_alerts
 from .linkedin_queue import LinkedInQueueError, load_queue, open_next_pending, pending_linkedin_candidates, select_candidate, status_counts, validate_linkedin_queue
 from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_linkedin, run_login
 from .models import BatchStats
+from .paths import output_paths
 from .persistence import read_headhunter_raw, rebuild_from_authoritative_sources
 from .sources import already_succeeded_today, load_statuses, mark_status, write_statuses
 from .utils import read_json, write_json
@@ -303,7 +303,7 @@ def _print_summary(summary: dict) -> None:
     table = Table(title="Job Assistant Run Summary")
     table.add_column("Metric")
     table.add_column("Value")
-    for key in ["requests_made", "raw_records_received", "normalized_records", "duplicates_merged", "blocked_count", "eligible_count", "shortlist_count", "warning_count"]:
+    for key in ["requests_made", "raw_records_received", "normalized_records", "duplicates_merged", "blocked_count", "eligible_count", "role_review_count", "shortlist_count", "warning_count"]:
         table.add_row(key, str(summary.get(key)))
     if summary.get("errors"):
         errors = [_safe_error_detail(error) for error in summary["errors"]]

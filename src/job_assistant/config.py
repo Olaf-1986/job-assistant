@@ -39,13 +39,6 @@ class JobicySourceConfig(BaseModel):
     user_agent: str = Field(min_length=3)
 
 
-class HimalayasSourceConfig(BaseModel):
-    enabled: bool
-    mode: str = "api_feed"
-    endpoint: HttpUrl
-    user_agent: str = Field(min_length=3)
-
-
 class HeadHunterSampleConfig(BaseModel):
     enabled: bool
     name: str = Field(min_length=1)
@@ -71,7 +64,6 @@ class HeadHunterSourceConfig(BaseModel):
 
 
 class SourcesConfig(BaseModel):
-    himalayas: HimalayasSourceConfig
     jobicy: JobicySourceConfig
     headhunter: HeadHunterSourceConfig
     jooble: GenericSourceConfig
@@ -145,6 +137,7 @@ class OutputsConfig(BaseModel):
     csv_file: str
     shortlist_file: str
     blocked_file: str
+    role_review_file: str = "role_review.md"
     summary_file: str
     combined_json_file: str = "combined_jobs.json"
     combined_csv_file: str = "combined_jobs.csv"

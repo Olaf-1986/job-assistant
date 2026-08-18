@@ -9,8 +9,8 @@ import httpx
 
 from job_assistant.config import HeadHunterSampleConfig, Preferences
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.filters import contains_phrase
 from job_assistant.models import BatchStats, RawRecord
+from job_assistant.role_relevance import title_prefilter_matches
 
 LOGGER = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class HeadHunterConnector(VacancyConnector):
 
     def _request_detail(self, client: httpx.Client, record: dict[str, Any], sample: HeadHunterSampleConfig, query: str, stats: BatchStats) -> Any | None:
         title = str(record.get("name") or "")
-        if not _cheap_title_prefilter(title, self.preferences.role_relevance.relevant_title_keywords):
+        if not title_prefilter_matches(title, self.preferences.role_relevance.relevant_title_keywords):
             return record
         vacancy_id = record.get("id")
         if not vacancy_id:
@@ -158,10 +158,6 @@ def _format_http_error(exc: Exception) -> str:
     if len(body) > 500:
         body = f"{body[:500]}..."
     return f"{exc}; response_body={body!r}"
-
-
-def _cheap_title_prefilter(title: str, keywords: list[str]) -> bool:
-    return any(contains_phrase(title, keyword) for keyword in keywords)
 
 
 def _extract_records(data: Any, stats: BatchStats, sample: str, query: str, page: int) -> list[dict[str, Any]]:

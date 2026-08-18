@@ -7,32 +7,12 @@ from typing import Any
 
 from .config import Preferences
 from .models import BatchStats, NormalizedVacancy
+from .paths import output_paths
 from .utils import ensure_directory, write_json
 
 
-def output_paths(preferences: Preferences) -> dict[str, Path]:
-    directory = preferences.outputs.output_dir()
-    return {
-        "dir": directory,
-        "raw": directory / preferences.outputs.raw_file,
-        "normalized": directory / preferences.outputs.normalized_file,
-        "csv": directory / preferences.outputs.csv_file,
-        "shortlist": directory / preferences.outputs.shortlist_file,
-        "blocked": directory / preferences.outputs.blocked_file,
-        "summary": directory / preferences.outputs.summary_file,
-        "combined_json": directory / preferences.outputs.combined_json_file,
-        "combined_csv": directory / preferences.outputs.combined_csv_file,
-        "combined_shortlist": directory / preferences.outputs.combined_shortlist_file,
-        "manual_imports": directory / preferences.outputs.manual_imports_file,
-        "source_quality": directory / preferences.outputs.source_quality_file,
-        "email_candidates": directory / preferences.outputs.email_candidates_file,
-        "linkedin_email_queue": directory / preferences.outputs.linkedin_email_queue_file,
-        "email_state": directory / preferences.outputs.email_state_file,
-    }
-
-
 def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[NormalizedVacancy]:
-    eligible = [vacancy for vacancy in vacancies if not vacancy.blocker and not vacancy.requires_manual_location_review]
+    eligible = [vacancy for vacancy in vacancies if not vacancy.blocker and not vacancy.requires_manual_location_review and not vacancy.requires_manual_role_review]
     return sorted(eligible, key=lambda item: (item.score, item.publication_date.timestamp() if item.publication_date else 0.0), reverse=True)[:size]
 
 
@@ -41,6 +21,8 @@ def export_all(raw_records: list[dict[str, Any]], vacancies: list[NormalizedVaca
     ensure_directory(paths["dir"])
     shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
+    role_review = sorted([v for v in vacancies if not v.blocker and v.requires_manual_role_review], key=lambda item: item.score, reverse=True)
+    eligible_count = sum(not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies)
     write_json(paths["raw"], raw_records)
     write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
@@ -49,6 +31,7 @@ def export_all(raw_records: list[dict[str, Any]], vacancies: list[NormalizedVaca
     paths["shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["combined_shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["blocked"].write_text(_blocked_markdown(blocked), encoding="utf-8")
+    paths["role_review"].write_text(_role_review_markdown(role_review), encoding="utf-8")
     summary = {
         "run_timestamp": datetime.now().astimezone().isoformat(),
         "source": _source_name(vacancies, raw_records, preferences),
@@ -58,7 +41,8 @@ def export_all(raw_records: list[dict[str, Any]], vacancies: list[NormalizedVaca
         "normalized_records": len(vacancies),
         "duplicates_merged": stats.duplicates_merged,
         "blocked_count": len(blocked),
-        "eligible_count": len(vacancies) - len(blocked),
+        "eligible_count": eligible_count,
+        "role_review_count": len(role_review),
         "shortlist_count": len(shortlist),
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
         "errors": stats.errors,
@@ -72,6 +56,8 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
     ensure_directory(paths["dir"])
     shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
+    role_review = sorted([v for v in vacancies if not v.blocker and v.requires_manual_role_review], key=lambda item: item.score, reverse=True)
+    eligible_count = sum(not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies)
     write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     _write_csv(paths["csv"], vacancies)
@@ -79,6 +65,7 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
     paths["shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["combined_shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["blocked"].write_text(_blocked_markdown(blocked), encoding="utf-8")
+    paths["role_review"].write_text(_role_review_markdown(role_review), encoding="utf-8")
     summary = {
         "run_timestamp": datetime.now().astimezone().isoformat(),
         "source": _source_name(vacancies, [], preferences),
@@ -88,7 +75,8 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
         "normalized_records": len(vacancies),
         "duplicates_merged": 0,
         "blocked_count": len(blocked),
-        "eligible_count": len(vacancies) - len(blocked),
+        "eligible_count": eligible_count,
+        "role_review_count": len(role_review),
         "shortlist_count": len(shortlist),
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
         "errors": [],
@@ -98,7 +86,7 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
 
 
 def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
-    fields = ["score", "blocker", "role_relevance_breakdown", "title", "company", "employment_type", "detected_language", "work_mode", "international_remote_eligibility", "requires_manual_location_review", "international_remote_evidence", "location_restrictions", "salary_min", "salary_max", "salary_currency", "publication_date", "description_completeness", "matched_signals", "blocker_reasons", "warnings", "source_url", "apply_url", "application_url", "source", "sources"]
+    fields = ["score", "blocker", "requires_manual_role_review", "role_relevance_breakdown", "title", "company", "employment_type", "detected_language", "work_mode", "international_remote_eligibility", "requires_manual_location_review", "international_remote_evidence", "location_restrictions", "salary_min", "salary_max", "salary_currency", "publication_date", "description_completeness", "matched_signals", "blocker_reasons", "warnings", "source_url", "apply_url", "application_url", "source", "sources"]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -151,6 +139,21 @@ def _blocked_markdown(vacancies: list[NormalizedVacancy]) -> str:
     return "\n".join(lines)
 
 
+def _role_review_markdown(vacancies: list[NormalizedVacancy]) -> str:
+    lines = ["# Manual Role Review", ""]
+    for vacancy in vacancies:
+        lines.extend([
+            f"## {vacancy.title} - {vacancy.company or 'Unknown company'}",
+            f"- Score: {vacancy.score}",
+            f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown)}",
+            f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
+            f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
+            f"- Source: {_display_source_name([vacancy])}",
+            "",
+        ])
+    return "\n".join(lines)
+
+
 def _salary(vacancy: NormalizedVacancy) -> str:
     if vacancy.salary_min is None and vacancy.salary_max is None:
         return "n/a"
@@ -167,7 +170,7 @@ def _source_name(vacancies: list[NormalizedVacancy], raw_records: list[dict[str,
             return "headhunter"
         if isinstance(record, dict) and "jobTitle" in record:
             return "jobicy"
-    for name in ("headhunter", "jobicy", "himalayas"):
+    for name in ("headhunter", "jobicy"):
         source_config = getattr(preferences.sources, name, None)
         if source_config is not None and source_config.enabled:
             return name

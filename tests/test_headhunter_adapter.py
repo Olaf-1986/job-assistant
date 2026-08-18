@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from job_assistant.config import load_preferences
-from job_assistant.connectors.headhunter import HeadHunterConnector, _build_headers, _cheap_title_prefilter, _extract_records
+from job_assistant.connectors.headhunter import HeadHunterConnector, _build_headers, _extract_records
 from job_assistant.filters import apply_filters
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
@@ -85,11 +85,6 @@ def test_headhunter_requires_auth_before_batch(monkeypatch):
     raw, stats = HeadHunterConnector(preferences).fetch()
     assert raw == []
     assert stats.errors == ["authentication_missing: set HH_ACCESS_TOKEN after HeadHunter application approval"]
-
-
-def test_headhunter_title_prefilter_uses_boundaries():
-    assert _cheap_title_prefilter("Internal Tools Engineer", ["intern"]) is False
-    assert _cheap_title_prefilter("Business Analyst", ["business analyst"]) is True
 
 
 def test_headhunter_auth_is_optional_by_default():

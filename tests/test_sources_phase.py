@@ -51,14 +51,15 @@ def test_feed_source_normalizers_cover_arbeitnow_greenhouse_and_lever():
     assert vacancies[2].apply_url == "https://jobs.lever.co/example/p1"
 
 
-def test_role_relevance_uses_two_distinct_description_signal_groups():
+def test_adjacent_role_with_explicit_analyst_duties_requires_review():
     preferences = load_preferences()
     vacancies = normalize_records([
         {"query": "feed", "record": {"__source": "jooble", "id": "x", "title": "Operations Specialist", "company": "Acme", "snippet": "Requirements analysis, BPMN, UML and API integration", "link": "https://example.test/x"}}
     ], preferences)
     filtered = apply_filters(vacancies, preferences)
     assert filtered[0].blocker is False
-    assert "unambiguous" in filtered[0].role_relevance_breakdown[0]
+    assert filtered[0].requires_manual_role_review is True
+    assert "explicit BA/SA duties" in filtered[0].role_relevance_breakdown[0]
 
 
 def test_manual_import_command_does_not_make_http_requests(tmp_path, monkeypatch):
