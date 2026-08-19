@@ -28,7 +28,7 @@ from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_l
 from .models import BatchStats
 from .paths import output_paths
 from .persistence import read_headhunter_raw, rebuild_from_authoritative_sources
-from .sources import already_succeeded_today, load_statuses, mark_status, write_statuses
+from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_statuses, mark_status, write_statuses
 from .utils import read_json, write_json
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
@@ -347,7 +347,11 @@ def _print_linkedin_candidate(index: int, item: dict) -> None:
 def _fetch_source(preferences, source: str, force: bool) -> tuple[list[dict], BatchStats, str | None]:
     source = _source_key(source)
     if source == "linkedin":
-        return [], BatchStats(errors=["manual_current_page_only: start `uv run python -m job_assistant capture-server`, then use the Chromium extension on the open LinkedIn job page"]), "manual_current_page_only"
+        message = (
+            f"{LINKEDIN_EXECUTION_MODE}: use `uv run python -m job_assistant capture-server` with the Chromium extension, "
+            "or explicitly run `uv run python -m job_assistant linkedin-fetch`; Playwright never starts through `fetch` or `fetch-all`"
+        )
+        return [], BatchStats(errors=[message]), LINKEDIN_EXECUTION_MODE
     config = getattr(preferences.sources, source, None)
     if config is None:
         raise typer.BadParameter(f"Unsupported source: {source}")

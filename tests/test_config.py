@@ -12,7 +12,9 @@ def test_config_validation_accepts_default_preferences():
     preferences = load_preferences()
     assert preferences.run.pages_per_query == 1
     assert "Product Owner" in preferences.queries.excluded_target_titles
-    assert preferences.sources.linkedin.mode == "manual_current_page_only"
+    assert preferences.sources.linkedin.enabled is True
+    assert preferences.sources.linkedin.mode == "manual_or_explicit_playwright"
+    assert preferences.sources.linkedin.manual_run_only is True
     assert not hasattr(preferences.sources, "habr_browser")
     assert not hasattr(preferences.sources, "wellfound_browser")
     assert preferences.languages.international_english_bonus == 0

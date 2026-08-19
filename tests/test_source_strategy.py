@@ -47,16 +47,56 @@ def temp_preferences(tmp_path: Path):
 
 def test_fetch_all_runs_exactly_headhunter_even_if_optional_sources_enabled(tmp_path):
     preferences = temp_preferences(tmp_path)
+    assert preferences.sources.linkedin.enabled is True
     sources_config = preferences.sources.model_copy(update={"jobicy": preferences.sources.jobicy.model_copy(update={"enabled": True}), "greenhouse": preferences.sources.greenhouse.model_copy(update={"enabled": True})})
     assert _fetch_all_sources(preferences.model_copy(update={"sources": sources_config})) == ["headhunter"]
 
 
-def test_linkedin_fetch_is_actionable_manual_only(tmp_path):
+def test_linkedin_fetch_is_actionable_without_starting_playwright(monkeypatch, tmp_path):
+    monkeypatch.setattr("job_assistant.cli.fetch_pending_linkedin", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Playwright fetch must not start")))
+    monkeypatch.setattr("job_assistant.cli.run_login", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Playwright login must not start")))
     raw, stats, skipped = _fetch_source(temp_preferences(tmp_path), "linkedin", force=False)
     assert raw == []
-    assert skipped == "manual_current_page_only"
+    assert skipped == "manual_or_explicit_playwright"
     assert "capture-server" in stats.errors[0]
     assert "Chromium extension" in stats.errors[0]
+    assert "linkedin-fetch" in stats.errors[0]
+    assert "Playwright never starts through `fetch` or `fetch-all`" in stats.errors[0]
+
+
+def test_fetch_all_cli_never_starts_linkedin_playwright(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    automatic_sources: list[str] = []
+
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+    monkeypatch.setattr("job_assistant.cli.fetch_pending_linkedin", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Playwright fetch must not start")))
+    monkeypatch.setattr("job_assistant.cli.run_login", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Playwright login must not start")))
+
+    def fake_fetch_source(preferences, source, force):
+        automatic_sources.append(source)
+        return [], __import__("job_assistant.models", fromlist=["BatchStats"]).BatchStats(), None
+
+    class EmailResult:
+        candidates = []
+        headhunter_raw = []
+        stats = __import__("job_assistant.models", fromlist=["BatchStats"]).BatchStats()
+
+    monkeypatch.setattr("job_assistant.cli._fetch_source", fake_fetch_source)
+    monkeypatch.setattr("job_assistant.cli.sync_email_alerts", lambda *args, **kwargs: EmailResult())
+    monkeypatch.setattr("job_assistant.cli.mark_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", lambda *args, **kwargs: {})
+
+    result = runner.invoke(app, ["fetch-all", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert automatic_sources == ["headhunter"]
+
+
+def test_linkedin_source_status_is_explicit_queue_processing(tmp_path):
+    status = load_statuses(temp_preferences(tmp_path))["linkedin"]
+    assert status.enabled is True
+    assert status.mode == "manual_or_explicit_playwright"
+    assert status.priority == "explicit_queue_processing"
 
 
 def test_capture_endpoint_authentication_payload_and_explicit_title_company(monkeypatch, tmp_path):
@@ -367,7 +407,7 @@ def test_failed_headhunter_run_does_not_replace_valid_linkedin_data(tmp_path):
     assert {item["source"] for item in before} == {"linkedin"}
     raw, stats, skipped = _fetch_source(preferences, "linkedin", force=False)
     assert raw == []
-    assert skipped == "manual_current_page_only"
+    assert skipped == "manual_or_explicit_playwright"
     assert read_json(combined_path) == before
 
 

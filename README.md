@@ -4,8 +4,8 @@ Local, single-user vacancy pipeline for BA/SA, systems analyst, integration anal
 
 ## Source Strategy
 
-- `headhunter`: the only automatic source, using the official HeadHunter vacancies API.
-- `email`: read-only Gmail job-alert ingestion through IMAPS for trusted HeadHunter and LinkedIn vacancy links.
+- `headhunter`: the only vacancy source executed by `fetch-all`, using the official HeadHunter vacancies API.
+- `email`: read-only Gmail job-alert ingestion through IMAPS for trusted HeadHunter and LinkedIn vacancy links; it runs from `fetch-all` but is not a vacancy-source fetch.
 - `linkedin`: queued links can be processed either by manual current-page capture through the Chromium extension or by the explicit `linkedin-fetch` Playwright command.
 - `arbeitnow`, `jooble`, `jobicy`, `greenhouse`, and `lever`: legacy disabled/optional code paths; they never run from `fetch-all`.
 
@@ -27,14 +27,14 @@ uv run python -m job_assistant shortlist
 uv run pytest
 ```
 
-`fetch-all` fetches HeadHunter, then runs read-only email ingestion before rebuilding outputs. `fetch --source linkedin` prints the manual-capture instructions and does not fetch LinkedIn.
+`fetch-all` fetches HeadHunter, then runs read-only email ingestion before rebuilding outputs. `fetch --source linkedin` starts neither LinkedIn workflow and makes no LinkedIn request; it only prints instructions for extension capture and explicit `linkedin-fetch`. Playwright never starts implicitly through `fetch` or `fetch-all`.
 
 ## Persistence
 
 Output files under `output/` are derived data. Combined outputs are rebuilt only from:
 
 - latest successful `output/headhunter_raw.json`;
-- LinkedIn records stored in `output/manual_imports.json` by the extension or explicit manual import.
+- LinkedIn records stored in `output/manual_imports.json` by the extension, explicit `linkedin-fetch`, or explicit manual import.
 
 Email ingestion also writes derived `output/email_candidates.json`, `output/linkedin_email_queue.md`, and `output/email_state.json`. These files are derived/local state and are safe to rebuild from the configured mailbox.
 
@@ -69,7 +69,7 @@ uv run python -m job_assistant linkedin-fetch --limit 5 --dry-run
 uv run python -m job_assistant linkedin-fetch --limit 5
 ```
 
-`--login` opens a headed Chromium window for manual login and stores browser state only in the dedicated local profile. A normal run applies the title prefilter before navigation, extracts JobPosting JSON-LD or supported DOM fields, imports successful records through the same capture pipeline, and checkpoints each processed queue item. The run stops on login-required, CAPTCHA, or account-restriction pages; it does not bypass them.
+`linkedin-fetch` is opt-in queue processing, not a scheduled or automatic source. `--login` opens a headed Chromium window for manual login and stores browser state only in the dedicated local persistent profile. A normal run applies the title prefilter before navigation, extracts JobPosting JSON-LD or supported DOM fields, and checkpoints each processed queue item. Login-required, CAPTCHA, account-restriction, or similar barrier pages stop the run and are never bypassed. Successful extension and Playwright captures enter the same normalization, deduplication, filtering, scoring, persistence, and export pipeline.
 
 ## Gmail Job Alerts
 
@@ -89,7 +89,7 @@ Run:
 uv run python -m job_assistant email-sync --since-days 30
 ```
 
-The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.PEEK[]`, and never deletes, moves, modifies, or marks messages as read. Only trusted vacancy URL patterns are accepted: LinkedIn `/jobs/view/<id>` and HeadHunter `/vacancy/<id>` domains. LinkedIn links are queued for manual browser-extension capture; HeadHunter IDs are looked up through the official API.
+The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.PEEK[]`, and never deletes, moves, modifies, or marks messages as read. Only trusted vacancy URL patterns are accepted: LinkedIn `/jobs/view/<id>` and HeadHunter `/vacancy/<id>` domains. LinkedIn links enter the shared queue for either user-triggered browser-extension capture or explicit `linkedin-fetch` processing; HeadHunter IDs are looked up through the official API.
 
 ## Quality Rules
 

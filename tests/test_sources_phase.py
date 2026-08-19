@@ -15,7 +15,7 @@ from job_assistant.sources import SourceStatus, already_succeeded_today
 runner = CliRunner()
 
 
-def test_default_sources_include_headhunter_and_manual_linkedin_only_active_sources():
+def test_default_sources_include_headhunter_and_explicit_linkedin_processing():
     preferences = load_preferences()
     assert preferences.sources.headhunter.mode == "api_search"
     assert preferences.sources.jooble.requires_env == ["JOOBLE_API_KEY"]
@@ -23,8 +23,9 @@ def test_default_sources_include_headhunter_and_manual_linkedin_only_active_sour
     assert preferences.sources.lever.enabled is False
     assert preferences.sources.email.enabled is True
     assert preferences.sources.email.mode == "imap_read_only"
-    assert preferences.sources.linkedin.mode == "manual_current_page_only"
-    assert preferences.sources.linkedin.enabled is False
+    assert preferences.sources.linkedin.enabled is True
+    assert preferences.sources.linkedin.mode == "manual_or_explicit_playwright"
+    assert preferences.sources.linkedin.manual_run_only is True
 
 
 def test_jooble_incomplete_description_normalizes_for_manual_review():

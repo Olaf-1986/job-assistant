@@ -67,8 +67,9 @@ sources:
     enabled: true
     mode: imap_read_only
   linkedin:
-    enabled: false
-    mode: manual_current_page_only
+    enabled: true
+    mode: manual_or_explicit_playwright
+    manual_run_only: true
 
 queries:
   primary:
