@@ -6,10 +6,10 @@ Local, single-user vacancy pipeline for BA/SA, systems analyst, integration anal
 
 - `headhunter`: the only automatic source, using the official HeadHunter vacancies API.
 - `email`: read-only Gmail job-alert ingestion through IMAPS for trusted HeadHunter and LinkedIn vacancy links.
-- `linkedin`: manual current-page capture through the Chromium extension only.
-- `arbeitnow`, `jooble`, `himalayas`, `jobicy`, `greenhouse`, and `lever`: legacy disabled/optional code paths; they never run from `fetch-all`.
+- `linkedin`: queued links can be processed either by manual current-page capture through the Chromium extension or by the explicit `linkedin-fetch` Playwright command.
+- `arbeitnow`, `jooble`, `jobicy`, `greenhouse`, and `lever`: legacy disabled/optional code paths; they never run from `fetch-all`.
 
-No Habr, Wellfound, Playwright, browser login, browser profile, or RSS/browser-source workflow is part of the active project.
+No Habr, Wellfound, or RSS workflow is part of the active project. Playwright is used only by the explicit LinkedIn queue workflow, with a dedicated local browser profile.
 
 ## Commands
 
@@ -21,6 +21,8 @@ uv run python -m job_assistant fetch --source linkedin
 uv run python -m job_assistant email-sync --since-days 30
 uv run python -m job_assistant fetch-all
 uv run python -m job_assistant capture-server
+uv run python -m job_assistant linkedin-queue --status
+uv run python -m job_assistant linkedin-fetch --limit 5 --dry-run
 uv run python -m job_assistant shortlist
 uv run pytest
 ```
@@ -58,6 +60,16 @@ uv run python -m job_assistant capture-server
 ```
 
 Install `browser_extension/` as an unpacked Chromium extension and configure the local token from `data/capture_token`. Open a LinkedIn job page, review/edit the prefilled vacancy title and company in the popup, then save. Capture is always user-triggered and sends visible page text to `http://127.0.0.1:8765/api/v1/manual-capture`.
+
+Queued LinkedIn links can also be processed explicitly with Playwright:
+
+```bash
+uv run python -m job_assistant linkedin-fetch --login
+uv run python -m job_assistant linkedin-fetch --limit 5 --dry-run
+uv run python -m job_assistant linkedin-fetch --limit 5
+```
+
+`--login` opens a headed Chromium window for manual login and stores browser state only in the dedicated local profile. A normal run applies the title prefilter before navigation, extracts JobPosting JSON-LD or supported DOM fields, imports successful records through the same capture pipeline, and checkpoints each processed queue item. The run stops on login-required, CAPTCHA, or account-restriction pages; it does not bypass them.
 
 ## Gmail Job Alerts
 
