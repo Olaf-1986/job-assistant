@@ -104,7 +104,9 @@ def test_email_sync_deduplicates_messages_urls_and_is_idempotent(monkeypatch, tm
     candidates = read_json(preferences.outputs.output_dir() / preferences.outputs.email_candidates_file)
     assert len(candidates) == 2
     assert first.processed_message_count == 2
+    assert first.linkedin_queue_count == 1
     assert second.processed_message_count == 0
+    assert second.linkedin_queue_count == 1
     assert len(second.headhunter_raw) == 0
     assert read_json(preferences.outputs.output_dir() / preferences.outputs.email_state_file)["processed_message_ids"] == ["<alert-1@example.test>", "<alert-duplicate@example.test>"]
 

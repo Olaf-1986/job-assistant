@@ -113,7 +113,7 @@ def sync_email_alerts(preferences: Preferences, since_days: int, dry_run: bool =
         state["processed_message_ids"] = sorted(processed_message_ids)
         _write_email_outputs(preferences, candidates, state)
     stats.raw_records_received += len(candidates)
-    return EmailSyncResult(candidates=candidates, headhunter_raw=headhunter_raw, linkedin_queue_count=sum(1 for item in candidates if item["source"] == "linkedin" and item["status"] == "manual_capture_required"), processed_message_count=processed_count, stats=stats, dry_run=dry_run)
+    return EmailSyncResult(candidates=candidates, headhunter_raw=headhunter_raw, linkedin_queue_count=sum(1 for item in candidates if item["source"] == "linkedin" and item["status"] in PENDING_STATUSES), processed_message_count=processed_count, stats=stats, dry_run=dry_run)
 
 
 def load_email_settings(env_path: Path | None = None) -> dict[str, Any]:
