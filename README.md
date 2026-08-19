@@ -73,6 +73,12 @@ uv run python -m job_assistant linkedin-fetch --limit 5
 
 ## Gmail Job Alerts
 
+Create local environment configuration, then fill only the variables required for the workflows you enable:
+
+```bash
+cp .env.example .env
+```
+
 Configure `.env` with an app password for a dedicated Gmail label/mailbox:
 
 ```dotenv
