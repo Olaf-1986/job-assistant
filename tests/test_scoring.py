@@ -3,7 +3,14 @@ from __future__ import annotations
 from job_assistant.config import load_preferences
 from job_assistant.normalize import normalize_record
 from job_assistant.scoring import score_vacancy
-from tests.fixtures.vacancy_records import BUSINESS_ANALYST, CRYPTO_ROLE, INTERNSHIP, JIRA_USER, JUNIOR_ROLE, STRONG_JIRA_ADMIN
+from tests.fixtures.vacancy_records import (
+    BUSINESS_ANALYST,
+    CRYPTO_ROLE,
+    INTERNSHIP,
+    JIRA_USER,
+    JUNIOR_ROLE,
+    STRONG_JIRA_ADMIN,
+)
 
 
 def scored(raw):
@@ -25,7 +32,10 @@ def test_jira_user_scores_20():
 
 
 def test_jira_admin_requires_atlassian_platform_context():
-    raw = {**BUSINESS_ANALYST, "jobDescription": "<p>Define roles, workflows and automation for marketing operations.</p>"}
+    raw = {
+        **BUSINESS_ANALYST,
+        "jobDescription": "<p>Define roles, workflows and automation for marketing operations.</p>",
+    }
     vacancy = scored(raw)
     assert not any("+40 Jira" in line for line in vacancy.score_breakdown)
 
@@ -45,5 +55,10 @@ def test_negative_adjustments():
 def test_international_english_signal_does_not_add_legacy_bonus():
     plain = scored({**BUSINESS_ANALYST, "jobExcerpt": "", "jobDescription": "<p>Requirements gathering and BPMN.</p>"})
     assert not any("English/international" in line for line in plain.score_breakdown)
-    international = scored({**BUSINESS_ANALYST, "jobDescription": "<p>International distributed team. Requirements gathering and BPMN.</p>"})
+    international = scored(
+        {
+            **BUSINESS_ANALYST,
+            "jobDescription": "<p>International distributed team. Requirements gathering and BPMN.</p>",
+        }
+    )
     assert not any("English/international" in line for line in international.score_breakdown)

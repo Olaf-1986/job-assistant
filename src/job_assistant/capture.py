@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
@@ -9,7 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from .config import Preferences, load_preferences
-from .linkedin_queue import LinkedInQueueError, linkedin_job_id, linkedin_pipeline_outcome, manual_import_has_linkedin_job, open_next_pending, update_queue_after_capture, update_queue_processed
+from .linkedin_queue import (
+    LinkedInQueueError,
+    linkedin_job_id,
+    linkedin_pipeline_outcome,
+    manual_import_has_linkedin_job,
+    open_next_pending,
+    update_queue_after_capture,
+    update_queue_processed,
+)
 from .models import BatchStats
 from .paths import output_paths
 from .persistence import rebuild_from_authoritative_sources
@@ -52,10 +59,17 @@ def get_or_create_token() -> str:
 def create_app(allowed_origin: str | None = None) -> FastAPI:
     app = FastAPI(title="Job Assistant Capture Server")
     origins = [allowed_origin] if allowed_origin else []
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["POST"], allow_headers=["x-job-assistant-token", "content-type"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["POST"],
+        allow_headers=["x-job-assistant-token", "content-type"],
+    )
 
     @app.post("/api/v1/manual-capture")
-    def manual_capture(payload: ManualCapturePayload, x_job_assistant_token: str = Header(default="")) -> dict[str, object]:
+    def manual_capture(
+        payload: ManualCapturePayload, x_job_assistant_token: str = Header(default="")
+    ) -> dict[str, object]:
         expected = get_or_create_token()
         if not secrets.compare_digest(x_job_assistant_token, expected):
             raise HTTPException(status_code=401, detail="invalid capture token")
@@ -68,7 +82,9 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
     return app
 
 
-def process_manual_capture(preferences: Preferences, payload: ManualCapturePayload, auto_open_next: bool = False) -> dict[str, object]:
+def process_manual_capture(
+    preferences: Preferences, payload: ManualCapturePayload, auto_open_next: bool = False
+) -> dict[str, object]:
     raw = {"query": "manual_capture", "record": {"__source": "manual_capture", **payload.model_dump()}}
     paths = output_paths(preferences)
     existing_raw = read_json(paths["manual_imports"]) if paths["manual_imports"].exists() else []
@@ -85,9 +101,15 @@ def process_manual_capture(preferences: Preferences, payload: ManualCapturePaylo
     processed_result: dict[str, object] = {"matched": False}
     next_result: dict[str, object] = {"opened": False, "queue_id": None, "url": None, "error": None}
     warning = None
-    should_process = payload.source_label == "linkedin" and queue_result.get("matched") and isinstance(queue_result.get("job_id"), str)
+    should_process = (
+        payload.source_label == "linkedin"
+        and queue_result.get("matched")
+        and isinstance(queue_result.get("job_id"), str)
+    )
     if should_process:
-        outcome = linkedin_pipeline_outcome(preferences, str(queue_result["job_id"])) or {"pipeline_outcome": "extraction_failed"}
+        outcome = linkedin_pipeline_outcome(preferences, str(queue_result["job_id"])) or {
+            "pipeline_outcome": "extraction_failed"
+        }
         processed_result = update_queue_processed(preferences, str(queue_result["job_id"]), outcome)
         if auto_open_next and not duplicate:
             try:
@@ -112,6 +134,6 @@ def process_manual_capture(preferences: Preferences, payload: ManualCapturePaylo
 def run_capture_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
-    token = get_or_create_token()
+    get_or_create_token()
     print(f"Capture token stored at {TOKEN_PATH}. Configure it in the extension options. Token value is not logged.")
     uvicorn.run(create_app(), host=host, port=port)

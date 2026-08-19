@@ -14,7 +14,11 @@ def test_html_to_text_preserves_paragraphs_and_bullets():
 
 def test_normalize_detects_language_and_skips_malformed():
     preferences = load_preferences()
-    records = [{"query": "Business Analyst", "record": BUSINESS_ANALYST}, {"query": "System Analyst", "record": RUSSIAN_ROLE}, {"query": "Bad", "record": MALFORMED}]
+    records = [
+        {"query": "Business Analyst", "record": BUSINESS_ANALYST},
+        {"query": "System Analyst", "record": RUSSIAN_ROLE},
+        {"query": "Bad", "record": MALFORMED},
+    ]
     normalized = normalize_records(records, preferences)
     assert len(normalized) == 2
     assert {item.detected_language for item in normalized} == {"en", "ru"}

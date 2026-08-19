@@ -40,6 +40,17 @@ class LeverConnector(VacancyConnector):
                     continue
                 for job in data if isinstance(data, list) else []:
                     if isinstance(job, dict):
-                        records.append({"query": "lever_feed", "record": {"__source": "lever", "__company": company.name, "__site": company.site, "__region": company.region, **job}})
+                        records.append(
+                            {
+                                "query": "lever_feed",
+                                "record": {
+                                    "__source": "lever",
+                                    "__company": company.name,
+                                    "__site": company.site,
+                                    "__region": company.region,
+                                    **job,
+                                },
+                            }
+                        )
         stats.raw_records_received = len(records)
         return records, stats

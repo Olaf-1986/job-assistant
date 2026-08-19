@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -73,7 +73,10 @@ def validate_linkedin_queue(candidates: list[dict[str, Any]]) -> None:
         canonical_url = str(item.get("canonical_url") or "").strip()
         match = LINKEDIN_CANONICAL_RE.match(canonical_url)
         if not external_id or match is None or match.group(1) != external_id:
-            errors.append(f"queue_id={index}: malformed LinkedIn URL/id external_id={external_id!r} canonical_url={canonical_url!r}")
+            errors.append(
+                f"queue_id={index}: malformed LinkedIn URL/id external_id={external_id!r} "
+                f"canonical_url={canonical_url!r}"
+            )
             continue
         if external_id in seen:
             errors.append(f"queue_id={index}: duplicate LinkedIn job id {external_id}")
@@ -83,7 +86,11 @@ def validate_linkedin_queue(candidates: list[dict[str, Any]]) -> None:
 
 
 def status_counts(candidates: list[dict[str, Any]]) -> Counter[str]:
-    return Counter(_display_status(str(item.get("status") or "unknown")) for item in candidates if isinstance(item, dict) and item.get("source") == "linkedin")
+    return Counter(
+        _display_status(str(item.get("status") or "unknown"))
+        for item in candidates
+        if isinstance(item, dict) and item.get("source") == "linkedin"
+    )
 
 
 def pending_linkedin_candidates(candidates: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
@@ -91,7 +98,11 @@ def pending_linkedin_candidates(candidates: list[dict[str, Any]]) -> list[tuple[
 
 
 def _is_pending_linkedin(item: Any) -> bool:
-    return isinstance(item, dict) and item.get("source") == "linkedin" and str(item.get("status") or "") in PENDING_STATUSES
+    return (
+        isinstance(item, dict)
+        and item.get("source") == "linkedin"
+        and str(item.get("status") or "") in PENDING_STATUSES
+    )
 
 
 def _display_status(status: str) -> str:
@@ -109,12 +120,18 @@ def select_candidate(candidates: list[dict[str, Any]], selector: str) -> tuple[i
             if isinstance(item, dict) and item.get("source") == "linkedin":
                 return queue_id, item
         for index, item in enumerate(candidates, start=1):
-            if isinstance(item, dict) and item.get("source") == "linkedin" and str(item.get("external_id") or "") == selector:
+            if (
+                isinstance(item, dict)
+                and item.get("source") == "linkedin"
+                and str(item.get("external_id") or "") == selector
+            ):
                 return index, item
     return None
 
 
-def update_queue_after_capture(preferences: Preferences, page_url: str, captured_at: str | None = None) -> dict[str, Any]:
+def update_queue_after_capture(
+    preferences: Preferences, page_url: str, captured_at: str | None = None
+) -> dict[str, Any]:
     candidates = load_queue(preferences)
     validate_linkedin_queue(candidates)
     job_id = linkedin_job_id(page_url)
@@ -152,7 +169,11 @@ def manual_import_has_linkedin_job(manual_imports_path: Path, job_id: str | None
 def open_url_default_browser(url: str) -> tuple[bool, str | None]:
     try:
         if _running_under_wsl():
-            for command in (["wslview", url], ["powershell.exe", "-NoProfile", "-Command", "Start-Process", url], ["cmd.exe", "/C", "start", "", url]):
+            for command in (
+                ["wslview", url],
+                ["powershell.exe", "-NoProfile", "-Command", "Start-Process", url],
+                ["cmd.exe", "/C", "start", "", url],
+            ):
                 if shutil.which(command[0]):
                     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
                     return True, None
@@ -222,7 +243,12 @@ def _find_linkedin_vacancy(records: list[Any], job_id: str) -> dict[str, Any] | 
     for item in records:
         if not isinstance(item, dict) or item.get("source") != "linkedin":
             continue
-        urls = [item.get("source_url"), item.get("apply_url"), item.get("application_url"), *list(item.get("source_urls") or [])]
+        urls = [
+            item.get("source_url"),
+            item.get("apply_url"),
+            item.get("application_url"),
+            *list(item.get("source_urls") or []),
+        ]
         if any(linkedin_job_id(str(url or "")) == job_id or str(url or "").rstrip("/") == canonical for url in urls):
             return item
     return None

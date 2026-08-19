@@ -31,7 +31,9 @@ def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
     return [item for item in data if isinstance(item, dict) and _is_linkedin_raw(item)]
 
 
-def rebuild_from_authoritative_sources(preferences: Preferences, stats: BatchStats | None = None, headhunter_raw: list[RawRecord] | None = None) -> dict[str, Any]:
+def rebuild_from_authoritative_sources(
+    preferences: Preferences, stats: BatchStats | None = None, headhunter_raw: list[RawRecord] | None = None
+) -> dict[str, Any]:
     hh_raw = _dedupe_headhunter_raw(read_headhunter_raw(preferences) if headhunter_raw is None else headhunter_raw)
     linkedin_raw = read_linkedin_manual_raw(preferences)
     all_raw = [*hh_raw, *linkedin_raw]

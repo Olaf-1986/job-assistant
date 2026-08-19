@@ -29,7 +29,9 @@ def test_config_validation_rejects_invalid_yaml(tmp_path: Path):
 
 def test_project_env_loads_without_overriding_shell_environment(monkeypatch, tmp_path: Path):
     env_path = tmp_path / ".env"
-    env_path.write_text("JOB_ASSISTANT_TEST_FROM_ENV=from-dotenv\nJOB_ASSISTANT_TEST_PRECEDENCE=from-dotenv\n", encoding="utf-8")
+    env_path.write_text(
+        "JOB_ASSISTANT_TEST_FROM_ENV=from-dotenv\nJOB_ASSISTANT_TEST_PRECEDENCE=from-dotenv\n", encoding="utf-8"
+    )
     monkeypatch.delenv("JOB_ASSISTANT_TEST_FROM_ENV", raising=False)
     monkeypatch.setenv("JOB_ASSISTANT_TEST_PRECEDENCE", "from-shell")
 
@@ -41,6 +43,7 @@ def test_project_env_loads_without_overriding_shell_environment(monkeypatch, tmp
 
 def test_cli_loads_project_env_before_config_imports():
     import inspect
+
     import job_assistant.cli as cli
 
     source = inspect.getsource(cli)

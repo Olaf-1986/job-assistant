@@ -9,7 +9,6 @@ from .config import Preferences, load_target_companies
 from .models import SourceStatus
 from .utils import read_json, utc_now, write_json
 
-
 SOURCE_NAMES = ["headhunter", "email", "linkedin", "arbeitnow", "jooble", "jobicy", "greenhouse", "lever"]
 LINKEDIN_EXECUTION_MODE = "manual_or_explicit_playwright"
 SOURCE_PRIORITIES = {
@@ -39,7 +38,13 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
             continue
         item = saved.get(source, {}) if isinstance(saved, dict) else {}
         required = getattr(config, "requires_env", []) or []
-        credential_status = "present" if required and all(os.getenv(name) for name in required) else "missing" if required else "not_required"
+        credential_status = (
+            "present"
+            if required and all(os.getenv(name) for name in required)
+            else "missing"
+            if required
+            else "not_required"
+        )
         if source == "headhunter" and getattr(config, "require_authentication", False):
             token_env = str(getattr(config, "access_token_env", "HH_ACCESS_TOKEN"))
             credential_status = "present" if os.getenv(token_env, "").strip() else "authentication_missing"
@@ -84,7 +89,19 @@ def already_succeeded_today(status: SourceStatus) -> bool:
     return status.last_successful_run[:10] == date.today().isoformat()
 
 
-def mark_status(preferences: Preferences, source: str, status: str, records: int = 0, requests_made: int = 0, error: str | None = None, role_relevant_count: int = 0, shortlist_count: int = 0, card_prefilter_count: int = 0, opened_vacancy_count: int = 0, manual_review_count: int = 0) -> SourceStatus:
+def mark_status(
+    preferences: Preferences,
+    source: str,
+    status: str,
+    records: int = 0,
+    requests_made: int = 0,
+    error: str | None = None,
+    role_relevant_count: int = 0,
+    shortlist_count: int = 0,
+    card_prefilter_count: int = 0,
+    opened_vacancy_count: int = 0,
+    manual_review_count: int = 0,
+) -> SourceStatus:
     statuses = load_statuses(preferences)
     current = statuses[source]
     current.status = status

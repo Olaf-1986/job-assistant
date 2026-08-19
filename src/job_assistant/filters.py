@@ -7,20 +7,29 @@ from .language import has_explicit_german_requirement
 from .models import NormalizedVacancy
 from .utils import lower_text
 
-
-COUNTRY_RE = re.compile(r"(?:citizen(?:ship)?(?: of)?|citizen of|authorized to work in|work authorization in|right to work in)\s+(?:a\s+)?([A-Z][A-Za-z .-]+)", re.IGNORECASE)
+COUNTRY_RE = re.compile(
+    r"(?:citizen(?:ship)?(?: of)?|citizen of|authorized to work in|work authorization in|right to work in)"
+    r"\s+(?:a\s+)?([A-Z][A-Za-z .-]+)",
+    re.IGNORECASE,
+)
 ADJACENT_ROLE_TITLES = ("analyst", "administrator", "consultant", "specialist")
 EXPLICIT_IRRELEVANT_TITLES = ("nurse", "physician", "doctor", "surgeon", "medical assistant")
 
 
 def apply_role_relevance(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
-    title = (vacancy.title or "")
+    title = vacancy.title or ""
     text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text)
     irrelevant_terms = [*preferences.role_relevance.irrelevant_title_keywords, *EXPLICIT_IRRELEVANT_TITLES]
     explicit_irrelevant = any(contains_phrase(title, term) for term in irrelevant_terms)
-    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.developer_titles)
-    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.sales_titles)
-    explicit_irrelevant = explicit_irrelevant or any(contains_phrase(title, term) for term in preferences.blockers.support_titles)
+    explicit_irrelevant = explicit_irrelevant or any(
+        contains_phrase(title, term) for term in preferences.blockers.developer_titles
+    )
+    explicit_irrelevant = explicit_irrelevant or any(
+        contains_phrase(title, term) for term in preferences.blockers.sales_titles
+    )
+    explicit_irrelevant = explicit_irrelevant or any(
+        contains_phrase(title, term) for term in preferences.blockers.support_titles
+    )
     if explicit_irrelevant:
         reason = "clearly irrelevant profession before description evaluation"
         vacancy.blocker_reasons = sorted(set([*vacancy.blocker_reasons, reason]))
@@ -28,7 +37,9 @@ def apply_role_relevance(vacancy: NormalizedVacancy, preferences: Preferences) -
         vacancy.role_relevance_breakdown = [reason]
     elif _target_title_match(title, preferences):
         vacancy.role_relevance_breakdown = ["title matches configured target title"]
-    elif any(contains_phrase(title, term) for term in ADJACENT_ROLE_TITLES) and _has_explicit_analyst_duties(text, preferences):
+    elif any(contains_phrase(title, term) for term in ADJACENT_ROLE_TITLES) and _has_explicit_analyst_duties(
+        text, preferences
+    ):
         matched_groups = _matched_strong_groups(text, preferences)
         vacancy.requires_manual_role_review = True
         vacancy.role_relevance_breakdown = [f"adjacent title with explicit BA/SA duties: {', '.join(matched_groups)}"]
@@ -69,16 +80,45 @@ def _has_explicit_analyst_duties(text: str, preferences: Preferences) -> bool:
 
 def _is_atlassian_admin(text: str) -> bool:
     platform = any(contains_phrase(text, term) for term in ["jira", "confluence", "atlassian"])
-    duty = any(contains_phrase(text, term) for term in ["administration", "administer", "configuration", "configure", "workflow", "workflows", "permission", "permissions", "scheme", "schemes", "custom fields", "администр", "настрой", "права", "доступ"])
+    duty = any(
+        contains_phrase(text, term)
+        for term in [
+            "administration",
+            "administer",
+            "configuration",
+            "configure",
+            "workflow",
+            "workflows",
+            "permission",
+            "permissions",
+            "scheme",
+            "schemes",
+            "custom fields",
+            "администр",
+            "настрой",
+            "права",
+            "доступ",
+        ]
+    )
     return platform and duty
 
 
 def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
-    text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text, vacancy.company, " ".join(vacancy.location_restrictions))
+    text = lower_text(
+        vacancy.title,
+        vacancy.excerpt,
+        vacancy.description_text,
+        vacancy.company,
+        " ".join(vacancy.location_restrictions),
+    )
     title = (vacancy.title or "").lower()
     reasons: list[str] = [*vacancy.blocker_reasons]
     developer_title = any(contains_phrase(title, term) for term in preferences.blockers.developer_titles)
-    developer_title_allowed = any(contains_phrase(title, term) for term in preferences.blockers.developer_component_keywords if term not in {"jira", "confluence", "atlassian"})
+    developer_title_allowed = any(
+        contains_phrase(title, term)
+        for term in preferences.blockers.developer_component_keywords
+        if term not in {"jira", "confluence", "atlassian"}
+    )
     if developer_title and not developer_title_allowed:
         reasons.append("pure developer or engineering role")
     if any(contains_phrase(title, term) for term in preferences.blockers.sales_titles):

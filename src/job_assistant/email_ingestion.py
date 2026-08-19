@@ -12,16 +12,16 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 from dotenv import dotenv_values
 
 from .config import Preferences
 from .connectors.headhunter import HeadHunterConnector
+from .linkedin_queue import LEGACY_PENDING_STATUS, PENDING_STATUS, PENDING_STATUSES
 from .models import BatchStats, RawRecord
 from .paths import output_paths
 from .utils import ROOT, canonical_url, normalize_space, read_json, write_json
-from .linkedin_queue import LEGACY_PENDING_STATUS, PENDING_STATUS, PENDING_STATUSES
 
 LINKEDIN_RE = re.compile(r"/jobs/view/(\d+)")
 HH_RE = re.compile(r"/vacancy/(\d+)")
@@ -39,7 +39,14 @@ class EmailSyncResult:
     dry_run: bool = False
 
 
-def sync_email_alerts(preferences: Preferences, since_days: int, dry_run: bool = False, full_refresh: bool = False, imap_factory: Callable[..., Any] = imaplib.IMAP4_SSL, hh_lookup: Callable[[str], tuple[dict[str, Any] | None, BatchStats]] | None = None) -> EmailSyncResult:
+def sync_email_alerts(
+    preferences: Preferences,
+    since_days: int,
+    dry_run: bool = False,
+    full_refresh: bool = False,
+    imap_factory: Callable[..., Any] = imaplib.IMAP4_SSL,
+    hh_lookup: Callable[[str], tuple[dict[str, Any] | None, BatchStats]] | None = None,
+) -> EmailSyncResult:
     settings = load_email_settings()
     stats = BatchStats()
     state = _empty_state() if full_refresh else _load_state(preferences)
@@ -55,7 +62,9 @@ def sync_email_alerts(preferences: Preferences, since_days: int, dry_run: bool =
         client.login(settings["user"], settings["password"])
         status, _ = client.select(settings["mailbox"], readonly=True)
         if _bad_status(status):
-            raise RuntimeError(f"email_select_failed: could not open configured mailbox {settings['mailbox']!r} read-only")
+            raise RuntimeError(
+                f"email_select_failed: could not open configured mailbox {settings['mailbox']!r} read-only"
+            )
         since = (datetime.now(UTC) - timedelta(days=since_days)).strftime("%d-%b-%Y")
         status, data = client.uid("SEARCH", None, "SINCE", since)
         if _bad_status(status):
@@ -107,13 +116,29 @@ def sync_email_alerts(preferences: Preferences, since_days: int, dry_run: bool =
                 client.logout()
             except Exception:
                 pass
-    candidates = sorted(candidates_by_key.values(), key=lambda item: (str(item.get("received_at") or ""), item["source"], item["external_id"]), reverse=True)
+    candidates = sorted(
+        candidates_by_key.values(),
+        key=lambda item: (str(item.get("received_at") or ""), item["source"], item["external_id"]),
+        reverse=True,
+    )
     if not dry_run:
-        state["processed_uids"] = {**state.get("processed_uids", {}), settings["mailbox"]: sorted(processed_uids, key=_uid_sort_key)}
+        state["processed_uids"] = {
+            **state.get("processed_uids", {}),
+            settings["mailbox"]: sorted(processed_uids, key=_uid_sort_key),
+        }
         state["processed_message_ids"] = sorted(processed_message_ids)
         _write_email_outputs(preferences, candidates, state)
     stats.raw_records_received += len(candidates)
-    return EmailSyncResult(candidates=candidates, headhunter_raw=headhunter_raw, linkedin_queue_count=sum(1 for item in candidates if item["source"] == "linkedin" and item["status"] in PENDING_STATUSES), processed_message_count=processed_count, stats=stats, dry_run=dry_run)
+    return EmailSyncResult(
+        candidates=candidates,
+        headhunter_raw=headhunter_raw,
+        linkedin_queue_count=sum(
+            1 for item in candidates if item["source"] == "linkedin" and item["status"] in PENDING_STATUSES
+        ),
+        processed_message_count=processed_count,
+        stats=stats,
+        dry_run=dry_run,
+    )
 
 
 def load_email_settings(env_path: Path | None = None) -> dict[str, Any]:
@@ -122,7 +147,9 @@ def load_email_settings(env_path: Path | None = None) -> dict[str, Any]:
     port = int(str(os.getenv("EMAIL_IMAP_PORT") or values.get("EMAIL_IMAP_PORT") or "993"))
     user = str(values.get("EMAIL_IMAP_USER") or "").strip()
     password = str(values.get("EMAIL_IMAP_APP_PASSWORD") or "").strip()
-    mailbox = str(os.getenv("EMAIL_IMAP_MAILBOX") or values.get("EMAIL_IMAP_MAILBOX") or "JobAlerts").strip() or "JobAlerts"
+    mailbox = (
+        str(os.getenv("EMAIL_IMAP_MAILBOX") or values.get("EMAIL_IMAP_MAILBOX") or "JobAlerts").strip() or "JobAlerts"
+    )
     if not user or not password:
         raise RuntimeError("email_credentials_missing: set EMAIL_IMAP_USER and EMAIL_IMAP_APP_PASSWORD in .env")
     return {"host": host, "port": port, "user": user, "password": password, "mailbox": mailbox}
@@ -153,17 +180,19 @@ def extract_candidates_from_message(message: Message) -> list[dict[str, Any]]:
         seen.add(key)
         metadata_text = _context_for_url(joined, raw_url)
         anchor_title = anchors.get(raw_url) or anchors.get(canonical)
-        candidates.append({
-            "source": source,
-            "external_id": external_id,
-            "title": _extract_field(metadata_text, "title") or anchor_title or _subject_title(subject),
-            "company": _extract_field(metadata_text, "company"),
-            "location": _extract_field(metadata_text, "location"),
-            "canonical_url": canonical,
-            "received_at": received_at,
-            "message_id": message_id,
-            "status": PENDING_STATUS if source == "linkedin" else "pending_hh_lookup",
-        })
+        candidates.append(
+            {
+                "source": source,
+                "external_id": external_id,
+                "title": _extract_field(metadata_text, "title") or anchor_title or _subject_title(subject),
+                "company": _extract_field(metadata_text, "company"),
+                "location": _extract_field(metadata_text, "location"),
+                "canonical_url": canonical,
+                "received_at": received_at,
+                "message_id": message_id,
+                "status": PENDING_STATUS if source == "linkedin" else "pending_hh_lookup",
+            }
+        )
     return candidates
 
 
@@ -197,14 +226,16 @@ def _linkedin_queue_markdown(candidates: list[dict[str, Any]]) -> str:
     for item in linkedin:
         title = item.get("title") or "LinkedIn vacancy"
         company = item.get("company") or "Unknown company"
-        lines.extend([
-            f"## {title} - {company}",
-            f"- URL: [{item['canonical_url']}]({item['canonical_url']})",
-            f"- Location: {item.get('location') or 'n/a'}",
-            f"- Received: {item.get('received_at') or 'n/a'}",
-            f"- Status: {PENDING_STATUS if item.get('status') == LEGACY_PENDING_STATUS else item.get('status')}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## {title} - {company}",
+                f"- URL: [{item['canonical_url']}]({item['canonical_url']})",
+                f"- Location: {item.get('location') or 'n/a'}",
+                f"- Received: {item.get('received_at') or 'n/a'}",
+                f"- Status: {PENDING_STATUS if item.get('status') == LEGACY_PENDING_STATUS else item.get('status')}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -277,7 +308,7 @@ def _context_for_url(text: str, raw_url: str) -> str:
     lines = text.splitlines()
     for index, line in enumerate(lines):
         if raw_url in line or canonical_url(raw_url) in line:
-            return "\n".join(lines[max(0, index - 4): index + 5])
+            return "\n".join(lines[max(0, index - 4) : index + 5])
     return text[:1000]
 
 

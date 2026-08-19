@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from .config import Preferences
+from .filters import contains_phrase
 from .models import NormalizedVacancy
 from .utils import lower_text
-from .filters import contains_phrase
 
 
 def score_vacancy(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
     score = 0
     breakdown: list[str] = []
     signals: list[str] = []
-    text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text, vacancy.seniority, " ".join(vacancy.categories))
+    text = lower_text(
+        vacancy.title, vacancy.excerpt, vacancy.description_text, vacancy.seniority, " ".join(vacancy.categories)
+    )
     groups = preferences.scoring.keyword_groups
     jira_admin = _jira_admin_matches(text, groups["jira_admin"].keywords) if "jira_admin" in groups else []
     jira_user = _matches(text, groups["jira_user"].keywords) if "jira_user" in groups else []
@@ -53,7 +55,12 @@ def _matches(text: str, keywords: list[str]) -> list[str]:
 
 def _jira_admin_matches(text: str, keywords: list[str]) -> list[str]:
     platform_present = any(contains_phrase(text, platform) for platform in ["jira", "confluence", "atlassian"])
-    exact_admin = [keyword for keyword in keywords if contains_phrase(text, keyword) and any(platform in keyword.lower() for platform in ["jira", "confluence", "atlassian"])]
+    exact_admin = [
+        keyword
+        for keyword in keywords
+        if contains_phrase(text, keyword)
+        and any(platform in keyword.lower() for platform in ["jira", "confluence", "atlassian"])
+    ]
     if exact_admin:
         return exact_admin
     if not platform_present:

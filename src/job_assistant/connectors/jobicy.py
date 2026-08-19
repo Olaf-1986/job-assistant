@@ -40,7 +40,11 @@ class JobicyConnector(VacancyConnector):
                 response.raise_for_status()
                 return response.json()
             except (httpx.TimeoutException, httpx.NetworkError, httpx.HTTPStatusError) as exc:
-                transient = isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)) or getattr(exc, "response", None) is not None and exc.response.status_code in {429, 500, 502, 503, 504}
+                transient = (
+                    isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
+                    or getattr(exc, "response", None) is not None
+                    and exc.response.status_code in {429, 500, 502, 503, 504}
+                )
                 if not transient or attempt >= self.preferences.run.max_retries:
                     message = f"Jobicy request failed: {exc}"
                     LOGGER.warning(message)

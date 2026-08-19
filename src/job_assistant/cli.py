@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import logging
 import re
 from pathlib import Path
@@ -13,18 +14,26 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .config import ConfigLoadError, load_preferences
-from .connectors.headhunter import HeadHunterConnector
-from .connectors.jooble import JoobleConnector
-from .connectors.arbeitnow import ArbeitnowConnector
-from .connectors.greenhouse import GreenhouseConnector
-from .connectors.lever import LeverConnector
-from .connectors.jobicy import JobicyConnector
 from .ats import discover_greenhouse_board_token, discover_lever_site
 from .capture import run_capture_server
+from .config import ConfigLoadError, load_preferences
+from .connectors.arbeitnow import ArbeitnowConnector
+from .connectors.greenhouse import GreenhouseConnector
+from .connectors.headhunter import HeadHunterConnector
+from .connectors.jobicy import JobicyConnector
+from .connectors.jooble import JoobleConnector
+from .connectors.lever import LeverConnector
 from .email_ingestion import sync_email_alerts
-from .linkedin_queue import LinkedInQueueError, load_queue, open_next_pending, pending_linkedin_candidates, select_candidate, status_counts, validate_linkedin_queue
 from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_linkedin, run_login
+from .linkedin_queue import (
+    LinkedInQueueError,
+    load_queue,
+    open_next_pending,
+    pending_linkedin_candidates,
+    select_candidate,
+    status_counts,
+    validate_linkedin_queue,
+)
 from .models import BatchStats
 from .paths import output_paths
 from .persistence import read_headhunter_raw, rebuild_from_authoritative_sources
@@ -51,24 +60,47 @@ def validate_config() -> None:
 
 
 @app.command()
-def fetch(source: str = typer.Option("headhunter", help="Vacancy source to fetch."), force: bool = typer.Option(False, "--force", help="Allow a second successful automatic fetch today.")) -> None:
+def fetch(
+    source: str = typer.Option("headhunter", help="Vacancy source to fetch."),
+    force: bool = typer.Option(False, "--force", help="Allow a second successful automatic fetch today."),
+) -> None:
     """Fetch vacancies, normalize, deduplicate, score, and export outputs."""
     preferences = _load_or_exit()
     raw_records, stats, skipped = _fetch_source(preferences, source, force)
     if skipped:
         if _source_key(source) in load_statuses(preferences):
-            mark_status(preferences, _source_key(source), skipped, 0, stats.requests_made, stats.errors[-1] if stats.errors else skipped)
+            mark_status(
+                preferences,
+                _source_key(source),
+                skipped,
+                0,
+                stats.requests_made,
+                stats.errors[-1] if stats.errors else skipped,
+            )
         detail = f": {stats.errors[-1]}" if stats.errors else ""
         console.print(f"[yellow]{source} skipped: {skipped}{detail}[/yellow]")
         return
     status = "success" if not stats.errors else "HTTP error"
-    summary = rebuild_from_authoritative_sources(preferences, stats, headhunter_raw=raw_records if status == "success" else None)
-    mark_status(preferences, _source_key(source), status, len(raw_records), stats.requests_made, stats.errors[-1] if stats.errors else None, stats.role_relevant_count, stats.shortlist_count)
+    summary = rebuild_from_authoritative_sources(
+        preferences, stats, headhunter_raw=raw_records if status == "success" else None
+    )
+    mark_status(
+        preferences,
+        _source_key(source),
+        status,
+        len(raw_records),
+        stats.requests_made,
+        stats.errors[-1] if stats.errors else None,
+        stats.role_relevant_count,
+        stats.shortlist_count,
+    )
     _print_summary(summary)
 
 
 @app.command("fetch-all")
-def fetch_all(force: bool = typer.Option(False, "--force", help="Allow a second successful automatic fetch today.")) -> None:
+def fetch_all(
+    force: bool = typer.Option(False, "--force", help="Allow a second successful automatic fetch today."),
+) -> None:
     """Run all enabled automatic sources with error isolation."""
     preferences = _load_or_exit()
     all_raw: list[dict] = []
@@ -82,7 +114,14 @@ def fetch_all(force: bool = typer.Option(False, "--force", help="Allow a second 
             mark_status(preferences, _source_key(source), skipped, 0, 0, skipped)
             continue
         all_raw.extend(raw_records)
-        mark_status(preferences, _source_key(source), "success" if not stats.errors else "HTTP error", len(raw_records), stats.requests_made, stats.errors[-1] if stats.errors else None)
+        mark_status(
+            preferences,
+            _source_key(source),
+            "success" if not stats.errors else "HTTP error",
+            len(raw_records),
+            stats.requests_made,
+            stats.errors[-1] if stats.errors else None,
+        )
     email_raw: list[dict] = []
     try:
         email_result = sync_email_alerts(preferences, since_days=30)
@@ -91,7 +130,14 @@ def fetch_all(force: bool = typer.Option(False, "--force", help="Allow a second 
         combined_stats.raw_records_received += email_result.stats.raw_records_received
         email_errors = _tag_email_errors(email_result.stats.errors)
         combined_stats.errors.extend(email_errors)
-        mark_status(preferences, "email", "success" if not email_errors else "error", len(email_result.candidates), email_result.stats.requests_made, email_errors[-1] if email_errors else None)
+        mark_status(
+            preferences,
+            "email",
+            "success" if not email_errors else "error",
+            len(email_result.candidates),
+            email_result.stats.requests_made,
+            email_errors[-1] if email_errors else None,
+        )
     except RuntimeError as exc:
         error = _tag_email_errors([str(exc)])[0]
         combined_stats.errors.append(error)
@@ -107,7 +153,15 @@ def fetch_all(force: bool = typer.Option(False, "--force", help="Allow a second 
 
 
 @app.command("email-sync")
-def email_sync(since_days: int = typer.Option(30, "--since-days", min=1, max=3650, help="How far back to search the configured mailbox."), dry_run: bool = typer.Option(False, "--dry-run", help="Parse messages without writing state or outputs."), full_refresh: bool = typer.Option(False, "--full-refresh", help="Ignore local email UID/Message-ID state and rebuild email artifacts.")) -> None:
+def email_sync(
+    since_days: int = typer.Option(
+        30, "--since-days", min=1, max=3650, help="How far back to search the configured mailbox."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Parse messages without writing state or outputs."),
+    full_refresh: bool = typer.Option(
+        False, "--full-refresh", help="Ignore local email UID/Message-ID state and rebuild email artifacts."
+    ),
+) -> None:
     """Read Gmail job alerts from the configured IMAP mailbox."""
     preferences = _load_or_exit()
     try:
@@ -116,11 +170,24 @@ def email_sync(since_days: int = typer.Option(30, "--since-days", min=1, max=365
         console.print(f"[red]Email sync failed:[/red] {exc}")
         raise typer.Exit(1) from exc
     headhunter_raw = None if dry_run else [*read_headhunter_raw(preferences), *result.headhunter_raw]
-    summary = {"requests_made": result.stats.requests_made, "raw_records_received": result.stats.raw_records_received, "normalized_records": 0, "duplicates_merged": 0, "blocked_count": 0, "eligible_count": 0, "shortlist_count": 0, "warning_count": 0, "errors": result.stats.errors}
+    summary = {
+        "requests_made": result.stats.requests_made,
+        "raw_records_received": result.stats.raw_records_received,
+        "normalized_records": 0,
+        "duplicates_merged": 0,
+        "blocked_count": 0,
+        "eligible_count": 0,
+        "shortlist_count": 0,
+        "warning_count": 0,
+        "errors": result.stats.errors,
+    }
     if not dry_run:
         summary = rebuild_from_authoritative_sources(preferences, result.stats, headhunter_raw=headhunter_raw)
     _print_summary(summary)
-    console.print(f"Email candidates: {len(result.candidates)}; LinkedIn manual queue: {result.linkedin_queue_count}; processed messages: {result.processed_message_count}; dry-run: {dry_run}")
+    console.print(
+        f"Email candidates: {len(result.candidates)}; LinkedIn manual queue: {result.linkedin_queue_count}; "
+        f"processed messages: {result.processed_message_count}; dry-run: {dry_run}"
+    )
 
 
 @app.command("capture-server")
@@ -169,7 +236,23 @@ def sources_command() -> None:
     table.add_column("Main", no_wrap=True)
     table.add_column("Review", no_wrap=True)
     for status in statuses.values():
-        table.add_row(status.source, str(status.enabled), status.mode, status.credential_status, status.company_list_status, status.last_successful_run or "n/a", status.last_error or "n/a", status.status, status.priority, str(status.configured_search_count), str(status.raw_count), str(status.card_prefilter_count), str(status.opened_vacancy_count), str(status.shortlist_count), str(status.manual_review_count))
+        table.add_row(
+            status.source,
+            str(status.enabled),
+            status.mode,
+            status.credential_status,
+            status.company_list_status,
+            status.last_successful_run or "n/a",
+            status.last_error or "n/a",
+            status.status,
+            status.priority,
+            str(status.configured_search_count),
+            str(status.raw_count),
+            str(status.card_prefilter_count),
+            str(status.opened_vacancy_count),
+            str(status.shortlist_count),
+            str(status.manual_review_count),
+        )
     console.print(table)
 
 
@@ -177,7 +260,9 @@ def sources_command() -> None:
 def linkedin_queue(
     status: bool = typer.Option(False, "--status", help="Show LinkedIn queue counts by status."),
     next_item: bool = typer.Option(False, "--next", help="Show the next pending LinkedIn URL."),
-    open_item: bool = typer.Option(False, "--open", help="Open the next pending LinkedIn URL in the default browser. Requires --next."),
+    open_item: bool = typer.Option(
+        False, "--open", help="Open the next pending LinkedIn URL in the default browser. Requires --next."
+    ),
     list_items: bool = typer.Option(False, "--list", help="List LinkedIn queue candidates."),
     pending_only: bool = typer.Option(False, "--pending-only", help="Only list pending manual-capture candidates."),
     select: str | None = typer.Option(None, "--select", help="Show one candidate by queue ID or LinkedIn job ID."),
@@ -224,7 +309,15 @@ def linkedin_queue(
             raise typer.Exit(1)
         _print_linkedin_candidate(*selected)
     if list_items:
-        items = pending_linkedin_candidates(candidates) if pending_only else [(index, item) for index, item in enumerate(candidates, start=1) if isinstance(item, dict) and item.get("source") == "linkedin"]
+        items = (
+            pending_linkedin_candidates(candidates)
+            if pending_only
+            else [
+                (index, item)
+                for index, item in enumerate(candidates, start=1)
+                if isinstance(item, dict) and item.get("source") == "linkedin"
+            ]
+        )
         if not items:
             console.print("No LinkedIn candidates found.")
         for index, item in items:
@@ -233,10 +326,16 @@ def linkedin_queue(
 
 @app.command("linkedin-fetch")
 def linkedin_fetch(
-    login: bool = typer.Option(False, "--login", help="Open dedicated headed Chromium profile for manual LinkedIn login."),
+    login: bool = typer.Option(
+        False, "--login", help="Open dedicated headed Chromium profile for manual LinkedIn login."
+    ),
     limit: int = typer.Option(5, "--limit", min=1, max=100, help="Maximum pending LinkedIn candidates to process."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Open and extract without writing queue/import/shortlist files."),
-    pause_seconds: float = typer.Option(1.0, "--pause-seconds", min=0.0, max=60.0, help="Pause between LinkedIn pages."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Open and extract without writing queue/import/shortlist files."
+    ),
+    pause_seconds: float = typer.Option(
+        1.0, "--pause-seconds", min=0.0, max=60.0, help="Pause between LinkedIn pages."
+    ),
 ) -> None:
     """Fetch queued LinkedIn vacancies through a dedicated Playwright browser profile."""
     if login:
@@ -252,7 +351,11 @@ def linkedin_fetch(
     except LinkedInFetchError as exc:
         console.print(f"[red]LinkedIn fetch failed:[/red] {exc}")
         raise typer.Exit(1) from exc
-    console.print(f"LinkedIn fetch: opened={stats['opened']} imported={stats['imported']} skipped_title={stats['skipped_title']} expired={stats['expired']} extraction_failed={stats['extraction_failed']} dry_run={dry_run}")
+    console.print(
+        f"LinkedIn fetch: opened={stats['opened']} imported={stats['imported']} "
+        f"skipped_title={stats['skipped_title']} expired={stats['expired']} "
+        f"extraction_failed={stats['extraction_failed']} dry_run={dry_run}"
+    )
 
 
 @app.command("import-manual")
@@ -274,7 +377,18 @@ def import_manual(
     except OSError as exc:
         console.print(f"[red]Could not read manual import file:[/red] {exc}")
         raise typer.Exit(1) from exc
-    raw = {"query": "manual_import", "record": {"__source": "manual", "manual_source": source, "url": url, "text": text, "title": title or _infer_title(text), "company": company or _infer_company(text), "language": language}}
+    raw = {
+        "query": "manual_import",
+        "record": {
+            "__source": "manual",
+            "manual_source": source,
+            "url": url,
+            "text": text,
+            "title": title or _infer_title(text),
+            "company": company or _infer_company(text),
+            "language": language,
+        },
+    }
     paths = output_paths(preferences)
     existing_raw = read_json(paths["manual_imports"]) if paths["manual_imports"].exists() else []
     existing_raw.append(raw)
@@ -303,7 +417,17 @@ def _print_summary(summary: dict) -> None:
     table = Table(title="Job Assistant Run Summary")
     table.add_column("Metric")
     table.add_column("Value")
-    for key in ["requests_made", "raw_records_received", "normalized_records", "duplicates_merged", "blocked_count", "eligible_count", "role_review_count", "shortlist_count", "warning_count"]:
+    for key in [
+        "requests_made",
+        "raw_records_received",
+        "normalized_records",
+        "duplicates_merged",
+        "blocked_count",
+        "eligible_count",
+        "role_review_count",
+        "shortlist_count",
+        "warning_count",
+    ]:
         table.add_row(key, str(summary.get(key)))
     if summary.get("errors"):
         errors = [_safe_error_detail(error) for error in summary["errors"]]
@@ -348,8 +472,9 @@ def _fetch_source(preferences, source: str, force: bool) -> tuple[list[dict], Ba
     source = _source_key(source)
     if source == "linkedin":
         message = (
-            f"{LINKEDIN_EXECUTION_MODE}: use `uv run python -m job_assistant capture-server` with the Chromium extension, "
-            "or explicitly run `uv run python -m job_assistant linkedin-fetch`; Playwright never starts through `fetch` or `fetch-all`"
+            f"{LINKEDIN_EXECUTION_MODE}: use `uv run python -m job_assistant capture-server` "
+            "with the Chromium extension, or explicitly run "
+            "`uv run python -m job_assistant linkedin-fetch`; Playwright never starts through `fetch` or `fetch-all`"
         )
         return [], BatchStats(errors=[message]), LINKEDIN_EXECUTION_MODE
     config = getattr(preferences.sources, source, None)
@@ -370,7 +495,9 @@ def _fetch_source(preferences, source: str, force: bool) -> tuple[list[dict], Ba
     if already_succeeded_today(status) and not force:
         return [], BatchStats(), "already_successful_today"
     if force:
-        console.print(f"[yellow]Warning: --force bypasses the one-successful-fetch-per-day guard for {source}.[/yellow]")
+        console.print(
+            f"[yellow]Warning: --force bypasses the one-successful-fetch-per-day guard for {source}.[/yellow]"
+        )
     connectors = {
         "headhunter": HeadHunterConnector,
         "jooble": JoobleConnector,

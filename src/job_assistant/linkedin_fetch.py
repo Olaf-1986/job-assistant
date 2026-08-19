@@ -11,7 +11,14 @@ from bs4 import BeautifulSoup
 
 from .capture import ManualCapturePayload, process_manual_capture
 from .config import Preferences
-from .linkedin_queue import PENDING_STATUSES, canonical_linkedin_url, linkedin_job_id, load_queue, update_queue_processed, validate_linkedin_queue
+from .linkedin_queue import (
+    PENDING_STATUSES,
+    canonical_linkedin_url,
+    linkedin_job_id,
+    load_queue,
+    update_queue_processed,
+    validate_linkedin_queue,
+)
 from .role_relevance import title_prefilter_matches
 from .utils import ROOT, normalize_space
 
@@ -57,10 +64,38 @@ def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "Li
     location = _location_text(structured.get("jobLocation")) if structured else None
     description = _description_from_structured(structured) if structured else None
 
-    title = title or _first_text(soup, ["h1", "[data-test-job-title]", ".job-details-jobs-unified-top-card__job-title", ".top-card-layout__title"])
-    company = company or _first_text(soup, ["[data-test-job-company-name]", ".job-details-jobs-unified-top-card__company-name", ".topcard__org-name-link", ".top-card-layout__card .topcard__flavor"])
-    location = location or _first_text(soup, ["[data-test-job-location]", ".job-details-jobs-unified-top-card__primary-description-container", ".topcard__flavor--bullet", ".job-search-card__location"])
-    description = description or _first_text(soup, ["[data-test-job-description]", ".jobs-description__content", ".jobs-box__html-content", "#job-details", ".description__text"])
+    title = title or _first_text(
+        soup,
+        ["h1", "[data-test-job-title]", ".job-details-jobs-unified-top-card__job-title", ".top-card-layout__title"],
+    )
+    company = company or _first_text(
+        soup,
+        [
+            "[data-test-job-company-name]",
+            ".job-details-jobs-unified-top-card__company-name",
+            ".topcard__org-name-link",
+            ".top-card-layout__card .topcard__flavor",
+        ],
+    )
+    location = location or _first_text(
+        soup,
+        [
+            "[data-test-job-location]",
+            ".job-details-jobs-unified-top-card__primary-description-container",
+            ".topcard__flavor--bullet",
+            ".job-search-card__location",
+        ],
+    )
+    description = description or _first_text(
+        soup,
+        [
+            "[data-test-job-description]",
+            ".jobs-description__content",
+            ".jobs-box__html-content",
+            "#job-details",
+            ".description__text",
+        ],
+    )
 
     title = normalize_space(title or "")
     description = normalize_space(description or "")
@@ -68,7 +103,15 @@ def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "Li
         raise LinkedInFetchError("extraction_failed: missing title")
     if len(description) < MIN_DESCRIPTION_LENGTH:
         raise LinkedInFetchError("extraction_failed: missing substantive description")
-    return LinkedInVacancy(job_id=job_id, canonical_url=canonical_linkedin_url(job_id), title=title, company=normalize_space(company) if company else None, location=normalize_space(location) if location else None, description=description, document_title=document_title)
+    return LinkedInVacancy(
+        job_id=job_id,
+        canonical_url=canonical_linkedin_url(job_id),
+        title=title,
+        company=normalize_space(company) if company else None,
+        location=normalize_space(location) if location else None,
+        description=description,
+        document_title=document_title,
+    )
 
 
 def classify_linkedin_page(url: str, text: str) -> str | None:
@@ -79,12 +122,22 @@ def classify_linkedin_page(url: str, text: str) -> str | None:
         return "captcha"
     if "account restricted" in lowered or "temporarily restricted" in lowered:
         return "account_restricted"
-    if "no longer accepting applications" in lowered or "job is no longer available" in lowered or "this job is no longer available" in lowered:
+    if (
+        "no longer accepting applications" in lowered
+        or "job is no longer available" in lowered
+        or "this job is no longer available" in lowered
+    ):
         return "expired"
     return None
 
 
-def fetch_pending_linkedin(preferences: Preferences, limit: int = 5, dry_run: bool = False, pause_seconds: float = 1.0, page_fetcher: Callable[[str], tuple[str, str]] | None = None) -> dict[str, Any]:
+def fetch_pending_linkedin(
+    preferences: Preferences,
+    limit: int = 5,
+    dry_run: bool = False,
+    pause_seconds: float = 1.0,
+    page_fetcher: Callable[[str], tuple[str, str]] | None = None,
+) -> dict[str, Any]:
     if limit < 1:
         raise LinkedInFetchError("limit must be at least 1")
     close_fetcher = False
@@ -94,12 +147,23 @@ def fetch_pending_linkedin(preferences: Preferences, limit: int = 5, dry_run: bo
     try:
         candidates = load_queue(preferences)
         validate_linkedin_queue(candidates)
-        stats: dict[str, Any] = {"opened": 0, "imported": 0, "skipped_title": 0, "expired": 0, "extraction_failed": 0, "errors": []}
+        stats: dict[str, Any] = {
+            "opened": 0,
+            "imported": 0,
+            "skipped_title": 0,
+            "expired": 0,
+            "extraction_failed": 0,
+            "errors": [],
+        }
         processed = 0
         for item in candidates:
             if processed >= limit:
                 break
-            if not isinstance(item, dict) or item.get("source") != "linkedin" or str(item.get("status") or "") not in PENDING_STATUSES:
+            if (
+                not isinstance(item, dict)
+                or item.get("source") != "linkedin"
+                or str(item.get("status") or "") not in PENDING_STATUSES
+            ):
                 continue
             job_id = str(item.get("external_id") or "")
             title = str(item.get("title") or "")
@@ -107,7 +171,11 @@ def fetch_pending_linkedin(preferences: Preferences, limit: int = 5, dry_run: bo
                 stats["skipped_title"] += 1
                 processed += 1
                 if not dry_run and job_id:
-                    update_queue_processed(preferences, job_id, {"pipeline_outcome": "extraction_failed", "blocker_reasons": ["title_prefilter_rejected"]})
+                    update_queue_processed(
+                        preferences,
+                        job_id,
+                        {"pipeline_outcome": "extraction_failed", "blocker_reasons": ["title_prefilter_rejected"]},
+                    )
                 continue
             url = str(item.get("canonical_url") or "")
             processed += 1
@@ -132,7 +200,9 @@ def fetch_pending_linkedin(preferences: Preferences, limit: int = 5, dry_run: bo
                     stats["extraction_failed"] += 1
                     stats["errors"].append(reason)
                     if not dry_run and job_id:
-                        update_queue_processed(preferences, job_id, {"pipeline_outcome": "extraction_failed", "blocker_reasons": [reason]})
+                        update_queue_processed(
+                            preferences, job_id, {"pipeline_outcome": "extraction_failed", "blocker_reasons": [reason]}
+                        )
             if pause_seconds:
                 time.sleep(pause_seconds)
         return stats
@@ -264,7 +334,11 @@ def _location_text(value: Any) -> str | None:
             if isinstance(address, str):
                 parts.append(address)
             elif isinstance(address, dict):
-                parts.extend(str(address.get(key)) for key in ["addressLocality", "addressRegion", "addressCountry"] if address.get(key))
+                parts.extend(
+                    str(address.get(key))
+                    for key in ["addressLocality", "addressRegion", "addressCountry"]
+                    if address.get(key)
+                )
     return ", ".join(parts) or None
 
 

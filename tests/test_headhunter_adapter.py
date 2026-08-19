@@ -56,7 +56,9 @@ def test_headhunter_normalizes_remote_and_tbilisi_fields():
 
 def test_headhunter_ba_sa_records_pass_role_relevance_and_score():
     preferences = load_preferences()
-    raw_records = [{"query": "Business Analyst", "sample": "remote", "record": record} for record in HEADHUNTER_RESPONSE["items"]]
+    raw_records = [
+        {"query": "Business Analyst", "sample": "remote", "record": record} for record in HEADHUNTER_RESPONSE["items"]
+    ]
     vacancies = score_vacancies(apply_filters(normalize_records(raw_records, preferences), preferences), preferences)
     assert all(not vacancy.blocker for vacancy in vacancies)
     assert all(vacancy.score > 0 for vacancy in vacancies)
@@ -68,10 +70,19 @@ def test_headhunter_scoring_uses_keyword_near_end_of_full_description():
     record = {
         **HEADHUNTER_RESPONSE["items"][0],
         "snippet": {"requirement": "Business Analyst work.", "responsibility": "Stakeholder collaboration."},
-        "description": f"<p>Business Analyst role with requirements analysis.</p><p>{filler}</p><p>The final paragraph mentions OpenAPI.</p>",
+        "description": (
+            f"<p>Business Analyst role with requirements analysis.</p><p>{filler}</p>"
+            "<p>The final paragraph mentions OpenAPI.</p>"
+        ),
     }
 
-    vacancy = score_vacancies(apply_filters(normalize_records([{"query": "Business Analyst", "sample": "remote", "record": record}], preferences), preferences), preferences)[0]
+    vacancy = score_vacancies(
+        apply_filters(
+            normalize_records([{"query": "Business Analyst", "sample": "remote", "record": record}], preferences),
+            preferences,
+        ),
+        preferences,
+    )[0]
 
     assert vacancy.blocker is False
     assert "openapi" in vacancy.matched_signals
@@ -81,7 +92,15 @@ def test_headhunter_scoring_uses_keyword_near_end_of_full_description():
 def test_headhunter_requires_auth_before_batch(monkeypatch):
     monkeypatch.delenv("HH_ACCESS_TOKEN", raising=False)
     preferences = load_preferences()
-    preferences = preferences.model_copy(update={"sources": preferences.sources.model_copy(update={"headhunter": preferences.sources.headhunter.model_copy(update={"require_authentication": True})})})
+    preferences = preferences.model_copy(
+        update={
+            "sources": preferences.sources.model_copy(
+                update={
+                    "headhunter": preferences.sources.headhunter.model_copy(update={"require_authentication": True})
+                }
+            )
+        }
+    )
     raw, stats = HeadHunterConnector(preferences).fetch()
     assert raw == []
     assert stats.errors == ["authentication_missing: set HH_ACCESS_TOKEN after HeadHunter application approval"]
@@ -140,9 +159,24 @@ def test_headhunter_tbilisi_sample_sends_area_and_work_formats():
 def test_russia_only_work_location_blocks_but_russian_citizenship_alone_does_not():
     preferences = load_preferences()
     base = HEADHUNTER_RESPONSE["items"][0]
-    russia_only = {**base, "description": "<p>Business Analyst. Requirements analysis. Remote work only from Russia.</p>"}
-    citizenship = {**base, "description": "<p>Business Analyst. Requirements analysis. Russian citizenship required.</p>"}
-    filtered = apply_filters(normalize_records([{"query": "Business Analyst", "record": russia_only}, {"query": "Business Analyst", "record": citizenship}], preferences), preferences)
+    russia_only = {
+        **base,
+        "description": "<p>Business Analyst. Requirements analysis. Remote work only from Russia.</p>",
+    }
+    citizenship = {
+        **base,
+        "description": "<p>Business Analyst. Requirements analysis. Russian citizenship required.</p>",
+    }
+    filtered = apply_filters(
+        normalize_records(
+            [
+                {"query": "Business Analyst", "record": russia_only},
+                {"query": "Business Analyst", "record": citizenship},
+            ],
+            preferences,
+        ),
+        preferences,
+    )
 
     assert filtered[0].blocker is True
     assert "work location restricted to Russia" in filtered[0].blocker_reasons

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 JOBICY_RESPONSE = {
     "apiVersion": "2.2.15",
     "jobCount": 2,
@@ -16,7 +15,9 @@ JOBICY_RESPONSE = {
             "jobGeo": "Anywhere",
             "jobLevel": "Senior",
             "jobExcerpt": "Remote consulting for Jira and Confluence workflows.",
-            "jobDescription": "<p>Own Jira administration, workflows, permissions, integrations and Confluence spaces.</p>",
+            "jobDescription": (
+                "<p>Own Jira administration, workflows, permissions, integrations and Confluence spaces.</p>"
+            ),
             "annualSalaryMin": 70000,
             "annualSalaryMax": 90000,
             "salaryCurrency": "USD",

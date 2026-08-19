@@ -30,24 +30,39 @@ def _keys(vacancy: NormalizedVacancy) -> list[str]:
             keys.append(f"url:{url}")
     if vacancy.source_id:
         keys.append(f"id:{vacancy.source}:{vacancy.source_id}")
-    company_title = f"{slugify_text(vacancy.company)}::{slugify_text(vacancy.title)}::{slugify_text(', '.join(vacancy.location_restrictions))}"
+    company_title = (
+        f"{slugify_text(vacancy.company)}::{slugify_text(vacancy.title)}::"
+        f"{slugify_text(', '.join(vacancy.location_restrictions))}"
+    )
     if company_title.strip(":"):
         keys.append(f"company-title:{company_title}")
     return keys
 
 
 def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:
-    if right.description_text and left.description_text and right.description_text not in left.description_text and left.description_text not in right.description_text:
+    if (
+        right.description_text
+        and left.description_text
+        and right.description_text not in left.description_text
+        and left.description_text not in right.description_text
+    ):
         left.description_text = f"{left.description_text}\n\n{right.description_text}"
         if right.description_html:
             left.description_html = f"{left.description_html or ''}\n{right.description_html}".strip()
-    elif len(right.description_html or right.description_text or "") > len(left.description_html or left.description_text or ""):
+    elif len(right.description_html or right.description_text or "") > len(
+        left.description_html or left.description_text or ""
+    ):
         left.description_text = right.description_text
         left.description_html = right.description_html
     left.source_queries = sorted(set(left.source_queries + right.source_queries))
     left.sources = sorted(set((left.sources or [left.source]) + (right.sources or [right.source])))
-    left.source_urls = sorted(set([url for url in [*left.source_urls, *right.source_urls, left.source_url, right.source_url] if url]))
-    left.source_metadata = {**left.source_metadata, **{f"{right.source}:{key}": value for key, value in right.source_metadata.items()}}
+    left.source_urls = sorted(
+        set([url for url in [*left.source_urls, *right.source_urls, left.source_url, right.source_url] if url])
+    )
+    left.source_metadata = {
+        **left.source_metadata,
+        **{f"{right.source}:{key}": value for key, value in right.source_metadata.items()},
+    }
     for source, ids in right.source_ids.items():
         left.source_ids[source] = sorted(set(left.source_ids.get(source, []) + ids))
     if right.source_id:

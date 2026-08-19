@@ -12,17 +12,39 @@ from .utils import ensure_directory, write_json
 
 
 def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[NormalizedVacancy]:
-    eligible = [vacancy for vacancy in vacancies if not vacancy.blocker and not vacancy.requires_manual_location_review and not vacancy.requires_manual_role_review]
-    return sorted(eligible, key=lambda item: (item.score, item.publication_date.timestamp() if item.publication_date else 0.0), reverse=True)[:size]
+    eligible = [
+        vacancy
+        for vacancy in vacancies
+        if not vacancy.blocker
+        and not vacancy.requires_manual_location_review
+        and not vacancy.requires_manual_role_review
+    ]
+    return sorted(
+        eligible,
+        key=lambda item: (item.score, item.publication_date.timestamp() if item.publication_date else 0.0),
+        reverse=True,
+    )[:size]
 
 
-def export_all(raw_records: list[dict[str, Any]], vacancies: list[NormalizedVacancy], preferences: Preferences, stats: BatchStats, queries: list[str]) -> dict[str, Any]:
+def export_all(
+    raw_records: list[dict[str, Any]],
+    vacancies: list[NormalizedVacancy],
+    preferences: Preferences,
+    stats: BatchStats,
+    queries: list[str],
+) -> dict[str, Any]:
     paths = output_paths(preferences)
     ensure_directory(paths["dir"])
     shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
-    role_review = sorted([v for v in vacancies if not v.blocker and v.requires_manual_role_review], key=lambda item: item.score, reverse=True)
-    eligible_count = sum(not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies)
+    role_review = sorted(
+        [v for v in vacancies if not v.blocker and v.requires_manual_role_review],
+        key=lambda item: item.score,
+        reverse=True,
+    )
+    eligible_count = sum(
+        not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies
+    )
     write_json(paths["raw"], raw_records)
     write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
@@ -56,8 +78,14 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
     ensure_directory(paths["dir"])
     shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
-    role_review = sorted([v for v in vacancies if not v.blocker and v.requires_manual_role_review], key=lambda item: item.score, reverse=True)
-    eligible_count = sum(not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies)
+    role_review = sorted(
+        [v for v in vacancies if not v.blocker and v.requires_manual_role_review],
+        key=lambda item: item.score,
+        reverse=True,
+    )
+    eligible_count = sum(
+        not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies
+    )
     write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     _write_csv(paths["csv"], vacancies)
@@ -86,7 +114,34 @@ def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences
 
 
 def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
-    fields = ["score", "blocker", "requires_manual_role_review", "role_relevance_breakdown", "title", "company", "employment_type", "detected_language", "work_mode", "international_remote_eligibility", "requires_manual_location_review", "international_remote_evidence", "location_restrictions", "salary_min", "salary_max", "salary_currency", "publication_date", "description_completeness", "matched_signals", "blocker_reasons", "warnings", "source_url", "apply_url", "application_url", "source", "sources"]
+    fields = [
+        "score",
+        "blocker",
+        "requires_manual_role_review",
+        "role_relevance_breakdown",
+        "title",
+        "company",
+        "employment_type",
+        "detected_language",
+        "work_mode",
+        "international_remote_eligibility",
+        "requires_manual_location_review",
+        "international_remote_evidence",
+        "location_restrictions",
+        "salary_min",
+        "salary_max",
+        "salary_currency",
+        "publication_date",
+        "description_completeness",
+        "matched_signals",
+        "blocker_reasons",
+        "warnings",
+        "source_url",
+        "apply_url",
+        "application_url",
+        "source",
+        "sources",
+    ]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -104,53 +159,59 @@ def _csv_value(value: Any) -> str:
 def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
     lines = ["# Job Shortlist", "", f"Source: {_display_source_name(vacancies)}", ""]
     for rank, vacancy in enumerate(vacancies, start=1):
-        lines.extend([
-            f"## {rank}. {vacancy.title} - {vacancy.company or 'Unknown company'}",
-            f"- Score: {vacancy.score}",
-            f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown) or 'n/a'}",
-            f"- Employment type: {vacancy.employment_type or 'n/a'}",
-            f"- Work format: {vacancy.work_mode or 'n/a'}",
-            f"- Language: {vacancy.detected_language or 'n/a'}",
-            f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
-            f"- Salary: {_salary(vacancy)}",
-            f"- Publication date: {vacancy.publication_date.isoformat() if vacancy.publication_date else 'n/a'}",
-            f"- Description completeness: {vacancy.description_completeness}",
-            f"- Matched signals: {', '.join(vacancy.matched_signals) or 'n/a'}",
-            f"- Score breakdown: {'; '.join(vacancy.score_breakdown) or 'n/a'}",
-            f"- Warnings: {'; '.join(vacancy.warnings) or 'none'}",
-            f"- Vacancy URL: {vacancy.source_url or vacancy.application_url or 'n/a'}",
-            f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
-            f"- Source: {_display_source_name([vacancy])}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## {rank}. {vacancy.title} - {vacancy.company or 'Unknown company'}",
+                f"- Score: {vacancy.score}",
+                f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown) or 'n/a'}",
+                f"- Employment type: {vacancy.employment_type or 'n/a'}",
+                f"- Work format: {vacancy.work_mode or 'n/a'}",
+                f"- Language: {vacancy.detected_language or 'n/a'}",
+                f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
+                f"- Salary: {_salary(vacancy)}",
+                f"- Publication date: {vacancy.publication_date.isoformat() if vacancy.publication_date else 'n/a'}",
+                f"- Description completeness: {vacancy.description_completeness}",
+                f"- Matched signals: {', '.join(vacancy.matched_signals) or 'n/a'}",
+                f"- Score breakdown: {'; '.join(vacancy.score_breakdown) or 'n/a'}",
+                f"- Warnings: {'; '.join(vacancy.warnings) or 'none'}",
+                f"- Vacancy URL: {vacancy.source_url or vacancy.application_url or 'n/a'}",
+                f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
+                f"- Source: {_display_source_name([vacancy])}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
 def _blocked_markdown(vacancies: list[NormalizedVacancy]) -> str:
     lines = ["# Blocked Jobs", ""]
     for vacancy in vacancies:
-        lines.extend([
-            f"## {vacancy.title} - {vacancy.company or 'Unknown company'}",
-            f"- Score: {vacancy.score}",
-            f"- Blocker reasons: {'; '.join(vacancy.blocker_reasons)}",
-            f"- Application URL: {vacancy.application_url or 'n/a'}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## {vacancy.title} - {vacancy.company or 'Unknown company'}",
+                f"- Score: {vacancy.score}",
+                f"- Blocker reasons: {'; '.join(vacancy.blocker_reasons)}",
+                f"- Application URL: {vacancy.application_url or 'n/a'}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
 def _role_review_markdown(vacancies: list[NormalizedVacancy]) -> str:
     lines = ["# Manual Role Review", ""]
     for vacancy in vacancies:
-        lines.extend([
-            f"## {vacancy.title} - {vacancy.company or 'Unknown company'}",
-            f"- Score: {vacancy.score}",
-            f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown)}",
-            f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
-            f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
-            f"- Source: {_display_source_name([vacancy])}",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## {vacancy.title} - {vacancy.company or 'Unknown company'}",
+                f"- Score: {vacancy.score}",
+                f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown)}",
+                f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
+                f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
+                f"- Source: {_display_source_name([vacancy])}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -161,7 +222,9 @@ def _salary(vacancy: NormalizedVacancy) -> str:
     return " ".join(part for part in [amount, vacancy.salary_currency, vacancy.salary_period] if part)
 
 
-def _source_name(vacancies: list[NormalizedVacancy], raw_records: list[dict[str, Any]], preferences: Preferences) -> str:
+def _source_name(
+    vacancies: list[NormalizedVacancy], raw_records: list[dict[str, Any]], preferences: Preferences
+) -> str:
     if vacancies:
         return vacancies[0].source
     if raw_records:

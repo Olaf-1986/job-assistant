@@ -40,6 +40,16 @@ class GreenhouseConnector(VacancyConnector):
                     continue
                 for job in data.get("jobs", []) if isinstance(data, dict) else []:
                     if isinstance(job, dict):
-                        records.append({"query": "greenhouse_feed", "record": {"__source": "greenhouse", "__company": company.name, "__board_token": company.board_token, **job}})
+                        records.append(
+                            {
+                                "query": "greenhouse_feed",
+                                "record": {
+                                    "__source": "greenhouse",
+                                    "__company": company.name,
+                                    "__board_token": company.board_token,
+                                    **job,
+                                },
+                            }
+                        )
         stats.raw_records_received = len(records)
         return records, stats

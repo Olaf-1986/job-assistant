@@ -97,7 +97,20 @@ def normalize_record(record: RawRecord, query: str, preferences: Preferences) ->
     return None
 
 
-def _base_vacancy(source: str, source_id: str | None, query: str, title: str, company: str | None, description_html: str | None, description_text: str | None, excerpt: str | None, location: str | None, url: str | None, preferences: Preferences, **extra: Any) -> NormalizedVacancy:
+def _base_vacancy(
+    source: str,
+    source_id: str | None,
+    query: str,
+    title: str,
+    company: str | None,
+    description_html: str | None,
+    description_text: str | None,
+    excerpt: str | None,
+    location: str | None,
+    url: str | None,
+    preferences: Preferences,
+    **extra: Any,
+) -> NormalizedVacancy:
     warnings: list[str] = list(extra.pop("warnings", []))
     text_for_detection = "\n".join([title, excerpt or "", description_text or "", location or ""])
     language = extra.pop("detected_language", None) or detect_language(text_for_detection)
@@ -107,7 +120,9 @@ def _base_vacancy(source: str, source_id: str | None, query: str, title: str, co
     fetched_at = utc_now()
     location_restrictions = [normalize_space(location)] if location else []
     location_text = "\n".join([*location_restrictions, text_for_detection])
-    completeness = extra.pop("description_completeness", "complete" if description_text and len(description_text) >= 200 else "incomplete")
+    completeness = extra.pop(
+        "description_completeness", "complete" if description_text and len(description_text) >= 200 else "incomplete"
+    )
     if completeness == "incomplete":
         warnings.append("incomplete description requires manual review")
     return NormalizedVacancy(
@@ -166,7 +181,14 @@ def _headhunter_work_mode(record: RawRecord, schedule: str | None, location_text
     structured = " ".join(as_list(record.get("work_format")) + as_list(record.get("work_formats")))
     lowered = structured.lower()
     schedule_lowered = " ".join([schedule_id, schedule or ""]).lower()
-    if "удален" in lowered or "удалён" in lowered or "remote" in lowered or schedule_id == "remote" or "удален" in schedule_lowered or "удалён" in schedule_lowered:
+    if (
+        "удален" in lowered
+        or "удалён" in lowered
+        or "remote" in lowered
+        or schedule_id == "remote"
+        or "удален" in schedule_lowered
+        or "удалён" in schedule_lowered
+    ):
         return "remote"
     if "гибрид" in lowered or "hybrid" in lowered:
         return "hybrid"
@@ -188,7 +210,11 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
     snippet = record.get("snippet") if isinstance(record.get("snippet"), dict) else {}
     requirement = snippet.get("requirement") if isinstance(snippet.get("requirement"), str) else None
     responsibility = snippet.get("responsibility") if isinstance(snippet.get("responsibility"), str) else None
-    description_html = record.get("description") if isinstance(record.get("description"), str) else "\n".join(part for part in [responsibility, requirement] if part) or None
+    description_html = (
+        record.get("description")
+        if isinstance(record.get("description"), str)
+        else "\n".join(part for part in [responsibility, requirement] if part) or None
+    )
     description_text = html_to_text(description_html)
     area = _dict_name(record.get("area"))
     employer = _dict_name(record.get("employer"))
@@ -202,7 +228,9 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
     location_restrictions = [area] if area else []
     location_text = "\n".join([*location_restrictions, schedule or "", text_for_detection])
     salary = record.get("salary") if isinstance(record.get("salary"), dict) else {}
-    application_url = canonical_url(record.get("alternate_url") if isinstance(record.get("alternate_url"), str) else None)
+    application_url = canonical_url(
+        record.get("alternate_url") if isinstance(record.get("alternate_url"), str) else None
+    )
     raw_urls = [application_url] if application_url else []
     return NormalizedVacancy(
         source="headhunter",
@@ -211,7 +239,10 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
         source_ids={"headhunter": [str(record.get("id"))]} if record.get("id") is not None else {},
         source_url=application_url,
         source_urls=[application_url] if application_url else [],
-        apply_url=canonical_url(record.get("apply_alternate_url") if isinstance(record.get("apply_alternate_url"), str) else None) or application_url,
+        apply_url=canonical_url(
+            record.get("apply_alternate_url") if isinstance(record.get("apply_alternate_url"), str) else None
+        )
+        or application_url,
         source_queries=[query],
         source_metadata={
             "area": area,
@@ -258,7 +289,23 @@ def _normalize_jooble_record(record: RawRecord, query: str, preferences: Prefere
     location = record.get("location") if isinstance(record.get("location"), str) else None
     salary = record.get("salary") if isinstance(record.get("salary"), str) else None
     warnings = [f"salary text: {salary}"] if salary else []
-    return _base_vacancy("jooble", str(record.get("id") or record.get("link") or "") or None, query, title, record.get("company") if isinstance(record.get("company"), str) else None, None, snippet, snippet, location, record.get("link") if isinstance(record.get("link"), str) else None, preferences, warnings=warnings, employment_type=record.get("type") if isinstance(record.get("type"), str) else None, publication_date=parse_datetime(record.get("updated")), description_completeness="incomplete")
+    return _base_vacancy(
+        "jooble",
+        str(record.get("id") or record.get("link") or "") or None,
+        query,
+        title,
+        record.get("company") if isinstance(record.get("company"), str) else None,
+        None,
+        snippet,
+        snippet,
+        location,
+        record.get("link") if isinstance(record.get("link"), str) else None,
+        preferences,
+        warnings=warnings,
+        employment_type=record.get("type") if isinstance(record.get("type"), str) else None,
+        publication_date=parse_datetime(record.get("updated")),
+        description_completeness="incomplete",
+    )
 
 
 def _normalize_arbeitnow_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
@@ -268,7 +315,22 @@ def _normalize_arbeitnow_record(record: RawRecord, query: str, preferences: Pref
     html = record.get("description") if isinstance(record.get("description"), str) else None
     text = html_to_text(html)
     location = record.get("location") if isinstance(record.get("location"), str) else None
-    return _base_vacancy("arbeitnow", str(record.get("slug") or "") or None, query, title, record.get("company_name") if isinstance(record.get("company_name"), str) else None, html, text, text, location, record.get("url") if isinstance(record.get("url"), str) else None, preferences, source_metadata={"remote": record.get("remote"), "visa_sponsorship": record.get("visa_sponsorship")}, publication_date=parse_datetime(record.get("created_at")), work_mode="remote" if record.get("remote") is True else None)
+    return _base_vacancy(
+        "arbeitnow",
+        str(record.get("slug") or "") or None,
+        query,
+        title,
+        record.get("company_name") if isinstance(record.get("company_name"), str) else None,
+        html,
+        text,
+        text,
+        location,
+        record.get("url") if isinstance(record.get("url"), str) else None,
+        preferences,
+        source_metadata={"remote": record.get("remote"), "visa_sponsorship": record.get("visa_sponsorship")},
+        publication_date=parse_datetime(record.get("created_at")),
+        work_mode="remote" if record.get("remote") is True else None,
+    )
 
 
 def _normalize_greenhouse_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
@@ -280,35 +342,119 @@ def _normalize_greenhouse_record(record: RawRecord, query: str, preferences: Pre
     offices = as_list(record.get("offices"))
     departments = as_list(record.get("departments"))
     absolute_url = record.get("absolute_url") if isinstance(record.get("absolute_url"), str) else None
-    return _base_vacancy("greenhouse", str(record.get("id") or "") or None, query, title, record.get("__company") if isinstance(record.get("__company"), str) else None, html, text, text, ", ".join(offices) or None, absolute_url, preferences, apply_url=absolute_url, source_company_identifier=record.get("__board_token"), source_metadata={"offices": offices, "departments": departments, "board_token": record.get("__board_token")}, publication_date=parse_datetime(record.get("updated_at")))
+    return _base_vacancy(
+        "greenhouse",
+        str(record.get("id") or "") or None,
+        query,
+        title,
+        record.get("__company") if isinstance(record.get("__company"), str) else None,
+        html,
+        text,
+        text,
+        ", ".join(offices) or None,
+        absolute_url,
+        preferences,
+        apply_url=absolute_url,
+        source_company_identifier=record.get("__board_token"),
+        source_metadata={"offices": offices, "departments": departments, "board_token": record.get("__board_token")},
+        publication_date=parse_datetime(record.get("updated_at")),
+    )
 
 
 def _normalize_lever_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
     title = record.get("text")
     if not isinstance(title, str) or not title.strip():
         return None
-    desc = record.get("descriptionPlain") if isinstance(record.get("descriptionPlain"), str) else html_to_text(record.get("description") if isinstance(record.get("description"), str) else None)
+    desc = (
+        record.get("descriptionPlain")
+        if isinstance(record.get("descriptionPlain"), str)
+        else html_to_text(record.get("description") if isinstance(record.get("description"), str) else None)
+    )
     categories = record.get("categories") if isinstance(record.get("categories"), dict) else {}
     location = categories.get("location") if isinstance(categories.get("location"), str) else None
     apply_url = record.get("hostedUrl") if isinstance(record.get("hostedUrl"), str) else None
-    return _base_vacancy("lever", str(record.get("id") or "") or None, query, title, record.get("__company") if isinstance(record.get("__company"), str) else None, None, desc, desc, location, apply_url, preferences, apply_url=apply_url, source_company_identifier=record.get("__site"), source_metadata={"categories": categories, "lists": record.get("lists"), "site": record.get("__site"), "region": record.get("__region")}, employment_type=categories.get("commitment") if isinstance(categories.get("commitment"), str) else None, publication_date=parse_datetime(record.get("createdAt") if isinstance(record.get("createdAt"), str) else None))
+    return _base_vacancy(
+        "lever",
+        str(record.get("id") or "") or None,
+        query,
+        title,
+        record.get("__company") if isinstance(record.get("__company"), str) else None,
+        None,
+        desc,
+        desc,
+        location,
+        apply_url,
+        preferences,
+        apply_url=apply_url,
+        source_company_identifier=record.get("__site"),
+        source_metadata={
+            "categories": categories,
+            "lists": record.get("lists"),
+            "site": record.get("__site"),
+            "region": record.get("__region"),
+        },
+        employment_type=categories.get("commitment") if isinstance(categories.get("commitment"), str) else None,
+        publication_date=parse_datetime(record.get("createdAt") if isinstance(record.get("createdAt"), str) else None),
+    )
 
 
 def _normalize_manual_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
     title = record.get("title") if isinstance(record.get("title"), str) else "Manual import vacancy"
     text = record.get("text") if isinstance(record.get("text"), str) else None
-    return _base_vacancy(str(record.get("manual_source") or "manual"), str(record.get("url") or "") or None, query, title, record.get("company") if isinstance(record.get("company"), str) else None, None, text, text, None, record.get("url") if isinstance(record.get("url"), str) else None, preferences, imported_manually=True, detected_language=record.get("language") if isinstance(record.get("language"), str) else None)
+    return _base_vacancy(
+        str(record.get("manual_source") or "manual"),
+        str(record.get("url") or "") or None,
+        query,
+        title,
+        record.get("company") if isinstance(record.get("company"), str) else None,
+        None,
+        text,
+        text,
+        None,
+        record.get("url") if isinstance(record.get("url"), str) else None,
+        preferences,
+        imported_manually=True,
+        detected_language=record.get("language") if isinstance(record.get("language"), str) else None,
+    )
 
 
-def _normalize_manual_capture_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
+def _normalize_manual_capture_record(
+    record: RawRecord, query: str, preferences: Preferences
+) -> NormalizedVacancy | None:
     source_label = record.get("source_label") if isinstance(record.get("source_label"), str) else "other"
-    explicit_title = record.get("vacancy_title") if isinstance(record.get("vacancy_title"), str) and record.get("vacancy_title").strip() else None
-    page_title = explicit_title or (record.get("document_title") if isinstance(record.get("document_title"), str) else "Captured vacancy")
-    company = record.get("company") if isinstance(record.get("company"), str) and record.get("company").strip() else None
+    explicit_title = (
+        record.get("vacancy_title")
+        if isinstance(record.get("vacancy_title"), str) and record.get("vacancy_title").strip()
+        else None
+    )
+    page_title = explicit_title or (
+        record.get("document_title") if isinstance(record.get("document_title"), str) else "Captured vacancy"
+    )
+    company = (
+        record.get("company") if isinstance(record.get("company"), str) and record.get("company").strip() else None
+    )
     selected = record.get("selected_text") if isinstance(record.get("selected_text"), str) else ""
     visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else ""
     text = selected.strip() or visible.strip() or page_title
-    return _base_vacancy(source_label, str(record.get("page_url") or "") or None, query, page_title, company, None, text, text, None, record.get("page_url") if isinstance(record.get("page_url"), str) else None, preferences, imported_manually=True, source_metadata={"hostname": record.get("hostname"), "captured_at": record.get("captured_at"), "document_title": record.get("document_title")})
+    return _base_vacancy(
+        source_label,
+        str(record.get("page_url") or "") or None,
+        query,
+        page_title,
+        company,
+        None,
+        text,
+        text,
+        None,
+        record.get("page_url") if isinstance(record.get("page_url"), str) else None,
+        preferences,
+        imported_manually=True,
+        source_metadata={
+            "hostname": record.get("hostname"),
+            "captured_at": record.get("captured_at"),
+            "document_title": record.get("document_title"),
+        },
+    )
 
 
 def _is_jobicy_record(record: RawRecord) -> bool:
@@ -361,7 +507,9 @@ def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Prefere
         salary_min=parse_optional_float(record.get("annualSalaryMin"), "annualSalaryMin", warnings),
         salary_max=parse_optional_float(record.get("annualSalaryMax"), "annualSalaryMax", warnings),
         salary_currency=record.get("salaryCurrency") if isinstance(record.get("salaryCurrency"), str) else None,
-        salary_period="year" if record.get("annualSalaryMin") is not None or record.get("annualSalaryMax") is not None else None,
+        salary_period="year"
+        if record.get("annualSalaryMin") is not None or record.get("annualSalaryMax") is not None
+        else None,
         publication_date=parse_datetime(record.get("pubDate")),
         expiry_date=None,
         application_url=application_url,
