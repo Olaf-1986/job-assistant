@@ -24,6 +24,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Updated the capture endpoint test harness to use an in-process ASGI transport compatible with the current dependency stack.
 - Protected exported CSV cell values from spreadsheet formula injection while preserving the existing CSV schema and outputs.
 - Sanitized error details before console display and persistence, including HeadHunter response-body handling.
+- Hardened the local capture server with one-time in-memory token loading and strict localhost Host validation.
 
 ### Removed
 

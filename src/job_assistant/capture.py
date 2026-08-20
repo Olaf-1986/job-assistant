@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import Preferences, load_preferences
 from .linkedin_queue import (
@@ -57,6 +58,7 @@ def get_or_create_token() -> str:
 
 
 def create_app(allowed_origin: str | None = None) -> FastAPI:
+    expected_token = get_or_create_token()
     app = FastAPI(title="Job Assistant Capture Server")
     origins = [allowed_origin] if allowed_origin else []
     app.add_middleware(
@@ -65,13 +67,13 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
         allow_methods=["POST"],
         allow_headers=["x-job-assistant-token", "content-type"],
     )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.post("/api/v1/manual-capture")
     def manual_capture(
         payload: ManualCapturePayload, x_job_assistant_token: str = Header(default="")
     ) -> dict[str, object]:
-        expected = get_or_create_token()
-        if not secrets.compare_digest(x_job_assistant_token, expected):
+        if not secrets.compare_digest(x_job_assistant_token, expected_token):
             raise HTTPException(status_code=401, detail="invalid capture token")
         preferences = load_preferences()
         try:
@@ -134,6 +136,6 @@ def process_manual_capture(
 def run_capture_server(host: str = "127.0.0.1", port: int = 8765) -> None:
     import uvicorn
 
-    get_or_create_token()
     print(f"Capture token stored at {TOKEN_PATH}. Configure it in the extension options. Token value is not logged.")
-    uvicorn.run(create_app(), host=host, port=port)
+    app = create_app()
+    uvicorn.run(app, host=host, port=port)

@@ -30,10 +30,10 @@ def run_fastapi_sync_endpoints_inline(monkeypatch):
     monkeypatch.setattr(fastapi.routing, "run_in_threadpool", run_inline)
 
 
-def post_to_app(app, url: str, **kwargs) -> httpx.Response:
+def post_to_app(app, url: str, base_url: str = "http://localhost", **kwargs) -> httpx.Response:
     async def post() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with httpx.AsyncClient(transport=transport, base_url=base_url) as client:
             return await asyncio.wait_for(client.post(url, **kwargs), timeout=5)
 
     return asyncio.run(post())
