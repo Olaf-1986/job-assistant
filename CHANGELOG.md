@@ -15,6 +15,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 ### Changed
 
+- Consolidated active documentation into a user README, repository agent rules, and one current technical-state handoff; historical specifications remain explicitly archived.
 - Formalized LinkedIn queue processing through either user-triggered Chromium extension capture or explicitly invoked `linkedin-fetch` Playwright processing. `fetch --source linkedin` and `fetch-all` never start LinkedIn Playwright.
 - Refactored shared pipeline modules to be source-neutral while preserving normalization, deduplication, filtering, scoring, persistence, and export behavior.
 - Archived the historical first vertical-slice specification as non-authoritative reference material.

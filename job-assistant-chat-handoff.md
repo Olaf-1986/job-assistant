@@ -1,41 +1,62 @@
-# Job Assistant Handoff
+# Job Assistant: Current Technical State
 
-## Current Source Strategy
+This is the single current technical-state handoff. See [README.md](README.md) for installation and commands and
+[AGENTS.md](AGENTS.md) for repository rules, invariants, and required verification. Historical specifications are not
+current scope.
 
-- HeadHunter is the only vacancy source executed by `fetch-all`.
-- HeadHunter uses only the official vacancies API.
-- Email job-alert ingestion is read-only IMAPS against the configured Gmail label/mailbox and runs from `fetch-all`.
-- LinkedIn queue items support user-triggered current-page capture through the Chromium extension or explicitly invoked Playwright processing through `linkedin-fetch`.
-- `fetch-all` runs HeadHunter, then email ingestion, then rebuilds outputs.
-- `fetch --source linkedin` must return instructions for both LinkedIn workflows, start neither workflow, and make no LinkedIn request.
-- Playwright must never start implicitly through `fetch` or `fetch-all`; LinkedIn browser automation is opt-in and is not a scheduled or automatic source.
+## Pipeline Topology
 
-## Removed Scope
+`fetch-all` has one automatic vacancy-source producer: HeadHunter through the official vacancies API. Its sequence is:
 
-Habr and Wellfound are removed from the active project. Do not restore browser-source configuration, Playwright logic, browser login, browser profiles, auth state, fixtures, outputs, or current documentation for those removed sources. This prohibition does not apply to the supported explicit LinkedIn workflow.
+1. run the HeadHunter source;
+2. run enabled email ingestion as a separate, isolated stage;
+3. rebuild combined outputs through the shared pipeline.
 
-Legacy disabled Arbeitnow, Jooble, Jobicy, Greenhouse, and Lever code may remain, but must never enter `fetch-all`. Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are deprecated legacy sources and have been removed from active code and configuration.
+Email errors are sanitized and isolated so successful source data can continue through rebuild and export. Email is an
+ingestion stage, not another automatic vacancy-source fetch.
 
-## Persistence Rules
+Every raw vacancy passed to normalization has an explicit `__source` of `headhunter` or `linkedin`. The shared pipeline
+then normalizes, deduplicates, filters, scores, and persists/exports records. Missing, unknown, or conflicting raw source
+markers are errors; legacy persisted records receive their source only at their known persistence boundary.
 
-Output files are derived data. Combined outputs must be rebuilt only from:
+## Ingestion Boundaries
 
-- latest successful HeadHunter raw data;
-- successful LinkedIn extension captures, explicit Playwright captures, and manual imports.
+### HeadHunter
 
-Email ingestion writes `email_candidates.json`, `linkedin_email_queue.md`, and `email_state.json`. It must use read-only IMAP with `BODY.PEEK[]`, never mutate messages, never log credentials or full bodies, and never fetch LinkedIn links. LinkedIn links enter the shared queue for extension capture or explicit `linkedin-fetch`; HeadHunter email candidates are retrieved through the official HH API.
+- Searches use the official API, including configured search text, area, schedule, and work format.
+- Remote searches have no timezone restriction; onsite/hybrid searches are limited to Tbilisi.
+- Explicit Russia-only work-location restrictions are blocked; Russian citizenship alone is not.
+- HeadHunter email candidates are retrieved by vacancy ID through the official API.
 
-Do not use old `combined_jobs.json` as an input. A HeadHunter refresh must preserve LinkedIn captures. A LinkedIn capture must not preserve stale removed-source, demo, or fixture records. Failed/skipped HeadHunter runs must not replace valid LinkedIn data with empty output.
+### Email
 
-## Verification
+- IMAPS opens only the configured mailbox in read-only mode and fetches with `BODY.PEEK[]`.
+- Messages are never deleted, moved, modified, or marked as read; credentials and full bodies are never logged.
+- Only trusted LinkedIn `/jobs/view/<id>` and HeadHunter `/vacancy/<id>` URLs are accepted. Arbitrary links are not
+  followed.
+- LinkedIn URLs are queued without fetching LinkedIn. Normal reruns are idempotent by IMAP UID and Message-ID.
+- Derived/local state consists of `email_candidates.json`, `linkedin_email_queue.md`, and `email_state.json`.
 
-Run offline only unless the user explicitly approves a live HeadHunter run:
+### LinkedIn
 
-```bash
-uv run python -m job_assistant validate-config
-uv run python -m job_assistant sources
-uv run pytest
-uv run python -m job_assistant --help
-```
+- Queue items are processed only by user-triggered current-page capture through the Chromium extension or explicitly
+  invoked Playwright through `linkedin-fetch`.
+- `fetch --source linkedin` only reports instructions. It starts neither workflow and makes no LinkedIn request.
+- Neither `fetch` nor `fetch-all` starts Playwright or opens a browser.
+- Playwright uses only its dedicated local persistent profile and manual login. Login, CAPTCHA, authwall, or account
+  restriction pages stop processing and are never bypassed.
+- Extension and Playwright captures use explicit vacancy title/company data and enter the shared pipeline.
 
-Do not make live HeadHunter requests in tests. LinkedIn Playwright may run only through an explicitly invoked `linkedin-fetch`, uses only its dedicated local persistent profile, and requires manual login. CAPTCHA, account restrictions, login barriers, and similar obstacles must stop processing and must never be bypassed. Successful extension and Playwright captures must use the same normalization, deduplication, filtering, scoring, persistence, and export pipeline. Tests remain offline and must not use a live browser, network, credentials, `.env` values, or persistent profile.
+## Authoritative Data and Rebuilds
+
+Combined output is derived only from the latest successful HeadHunter raw store and persisted LinkedIn extension,
+Playwright, or manual captures. An old `combined_jobs.json` is never an authoritative input.
+
+HeadHunter refreshes preserve LinkedIn captures. Failed or skipped HeadHunter/email work does not erase successful
+stored data. Repeated email ingestion, LinkedIn processing, vacancy IDs, and URLs remain idempotent.
+
+## Scope Boundaries
+
+Arbeitnow, Jooble, Jobicy, Greenhouse, and Lever are disabled optional/legacy code paths and never enter `fetch-all`.
+Habr, Wellfound, Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are not active sources. Telegram is
+planned but not implemented.

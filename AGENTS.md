@@ -18,9 +18,9 @@ Use this precedence:
 1. The user's current explicit request.
 2. Current code, configuration, and tests for implemented behavior.
 3. This `AGENTS.md` for repository-wide working rules.
-4. `README.md` and `job-assistant-chat-handoff.md` for current operation and context.
-5. Active specifications for planned or approved work.
-6. `specs/archive/` only as historical, non-authoritative material.
+4. `README.md` for user-facing setup, commands, and implemented behavior.
+5. `job-assistant-chat-handoff.md` as the single current technical-state handoff.
+6. `specs/archive/` only as historical, non-authoritative material; archived documents are not active scope.
 
 Call out contradictions instead of silently following an obsolete document or inventing behavior.
 

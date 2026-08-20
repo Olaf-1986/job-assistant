@@ -2,6 +2,34 @@
 
 Local, single-user vacancy pipeline for BA/SA, systems analyst, integration analyst, and Atlassian administration roles.
 
+## Installation
+
+The project requires Python 3.12 or newer and uses [uv](https://docs.astral.sh/uv/) for its environment:
+
+```bash
+uv sync
+uv run job-assistant --help
+```
+
+Both supported CLI entry points invoke the same application and can be used interchangeably:
+
+```bash
+uv run job-assistant --help
+uv run python -m job_assistant --help
+```
+
+Create a local `.env` from `.env.example` only when enabling a workflow that needs credentials. LinkedIn Playwright
+processing additionally requires a local Chromium installation and remains an explicitly invoked workflow.
+
+## Documentation
+
+- This README is the user guide for setup, commands, and implemented behavior.
+- [AGENTS.md](AGENTS.md) defines repository rules, invariants, and required checks for coding agents.
+- [job-assistant-chat-handoff.md](job-assistant-chat-handoff.md) is the single current technical-state handoff.
+
+Historical specifications under `specs/archive/` are non-authoritative and intentionally excluded from active
+navigation.
+
 ## Source Strategy
 
 - `headhunter`: the only vacancy source executed by `fetch-all`, using the official HeadHunter vacancies API.
@@ -27,7 +55,10 @@ uv run python -m job_assistant shortlist
 uv run pytest
 ```
 
-`fetch-all` fetches HeadHunter, then runs read-only email ingestion before rebuilding outputs. `fetch --source linkedin` starts neither LinkedIn workflow and makes no LinkedIn request; it only prints instructions for extension capture and explicit `linkedin-fetch`. Playwright never starts implicitly through `fetch` or `fetch-all`.
+`fetch-all` automatically fetches only HeadHunter. It then runs enabled read-only email ingestion as a separate stage
+before rebuilding outputs. `fetch --source linkedin` starts neither LinkedIn workflow and makes no LinkedIn request; it
+only prints instructions for extension capture and explicit `linkedin-fetch`. Playwright never starts implicitly
+through `fetch` or `fetch-all`.
 
 ## Persistence
 

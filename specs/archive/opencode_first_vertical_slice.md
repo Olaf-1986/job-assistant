@@ -1,3 +1,5 @@
+# Archived: First Vertical Slice
+
 > Historical specification: Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are deprecated legacy sources removed from active code and configuration. References below describe the original implementation plan only.
 
 You are working inside the existing local Python project:
