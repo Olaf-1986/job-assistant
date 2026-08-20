@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from types import SimpleNamespace
 
 import httpx
 
 from job_assistant.capture import create_app, run_capture_server
+from job_assistant.config import load_preferences
+from job_assistant.utils import read_json
 
 
 def post_to_app(app, url: str, base_url: str, **kwargs) -> httpx.Response:
@@ -153,3 +156,46 @@ def test_untrusted_host_is_rejected_before_capture_processing(monkeypatch):
     assert response.status_code == 400
     assert processed == []
     assert "synthetic-token" not in response.text
+
+
+def test_concurrent_captures_retain_every_manual_import(monkeypatch, tmp_path):
+    preferences = load_preferences()
+    preferences = preferences.model_copy(
+        update={"outputs": preferences.outputs.model_copy(update={"directory": str(tmp_path / "output")})}
+    )
+    monkeypatch.setattr("job_assistant.capture.get_or_create_token", lambda: "synthetic-token")
+    monkeypatch.setattr("job_assistant.capture.load_preferences", lambda: preferences)
+
+    from job_assistant.capture import write_json as original_write_json
+
+    def delayed_write_json(path, data):
+        time.sleep(0.05)
+        original_write_json(path, data)
+
+    monkeypatch.setattr("job_assistant.capture.write_json", delayed_write_json)
+    app = create_app()
+
+    async def capture_all() -> list[httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            return await asyncio.gather(
+                *[
+                    client.post(
+                        "/api/v1/manual-capture",
+                        json={
+                            **capture_payload(),
+                            "source_label": "other",
+                            "vacancy_title": title,
+                            "page_url": f"https://other.test/jobs/{index}",
+                        },
+                        headers={"x-job-assistant-token": "synthetic-token"},
+                    )
+                    for index, title in enumerate(("First capture", "Second capture"), start=1)
+                ]
+            )
+
+    responses = asyncio.run(capture_all())
+    manual_imports = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file, [])
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert {item["record"]["vacancy_title"] for item in manual_imports} == {"First capture", "Second capture"}

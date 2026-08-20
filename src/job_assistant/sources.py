@@ -30,7 +30,7 @@ def status_path(preferences: Preferences) -> Path:
 
 def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
     path = status_path(preferences)
-    saved: dict[str, Any] = read_json(path) if path.exists() else {}
+    saved: dict[str, Any] = read_json(path, {}) if path.exists() else {}
     statuses: dict[str, SourceStatus] = {}
     companies = load_target_companies()
     for source in SOURCE_NAMES:

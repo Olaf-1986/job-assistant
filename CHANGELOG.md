@@ -28,6 +28,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Hardened the local capture server with one-time in-memory token loading and strict localhost Host validation.
 - Aligned email credential precedence and source status with the required IMAP username and app password.
 - Sanitized shortlist Markdown titles to prevent injected headings, links, formatting, HTML, and multiline structure.
+- Hardened JSON persistence with atomic writes, corrupt-file recovery, and serialized capture updates.
 
 ### Removed
 

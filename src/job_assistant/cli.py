@@ -390,7 +390,7 @@ def import_manual(
         },
     }
     paths = output_paths(preferences)
-    existing_raw = read_json(paths["manual_imports"]) if paths["manual_imports"].exists() else []
+    existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
     existing_raw.append(raw)
     write_json(paths["manual_imports"], existing_raw)
     summary = rebuild_from_authoritative_sources(preferences, BatchStats(raw_records_received=1))

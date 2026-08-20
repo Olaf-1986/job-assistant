@@ -243,7 +243,7 @@ def _load_state(preferences: Preferences) -> dict[str, Any]:
     path = output_paths(preferences)["email_state"]
     if not path.exists():
         return _empty_state()
-    data = read_json(path)
+    data = read_json(path, _empty_state())
     return data if isinstance(data, dict) else _empty_state()
 
 
@@ -251,7 +251,7 @@ def _load_candidates(preferences: Preferences) -> list[dict[str, Any]]:
     path = output_paths(preferences)["email_candidates"]
     if not path.exists():
         return []
-    data = read_json(path)
+    data = read_json(path, [])
     return data if isinstance(data, list) else []
 
 

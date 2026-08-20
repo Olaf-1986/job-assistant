@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 import webbrowser
 from collections import Counter
 from datetime import UTC, datetime
@@ -13,7 +12,7 @@ from typing import Any
 
 from .config import Preferences
 from .paths import output_paths
-from .utils import read_json
+from .utils import read_json, write_json
 
 LINKEDIN_JOB_RE = re.compile(r"/jobs/view/(\d+)")
 LINKEDIN_CANONICAL_RE = re.compile(r"^https://www\.linkedin\.com/jobs/view/(\d+)$")
@@ -46,7 +45,7 @@ def load_queue(preferences: Preferences) -> list[dict[str, Any]]:
     path = output_paths(preferences)["email_candidates"]
     if not path.exists():
         return []
-    data = read_json(path)
+    data = read_json(path, [])
     if not isinstance(data, list):
         raise LinkedInQueueError(f"LinkedIn queue must be a JSON list: {path}")
     return data
@@ -54,13 +53,7 @@ def load_queue(preferences: Preferences) -> list[dict[str, Any]]:
 
 def write_queue(preferences: Preferences, candidates: list[dict[str, Any]]) -> None:
     path = output_paths(preferences)["email_candidates"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
-        temp_path = Path(handle.name)
-        import json
-
-        json.dump(candidates, handle, ensure_ascii=False, indent=2, default=str)
-    temp_path.replace(path)
+    write_json(path, candidates)
 
 
 def validate_linkedin_queue(candidates: list[dict[str, Any]]) -> None:
@@ -151,7 +144,7 @@ def update_queue_after_capture(
 def manual_import_has_linkedin_job(manual_imports_path: Path, job_id: str | None) -> bool:
     if not job_id or not manual_imports_path.exists():
         return False
-    data = read_json(manual_imports_path)
+    data = read_json(manual_imports_path, [])
     if not isinstance(data, list):
         return False
     canonical = canonical_linkedin_url(job_id)
@@ -224,7 +217,7 @@ def linkedin_pipeline_outcome(preferences: Preferences, job_id: str) -> dict[str
     paths = output_paths(preferences)
     if not paths["combined_json"].exists():
         return None
-    data = read_json(paths["combined_json"])
+    data = read_json(paths["combined_json"], [])
     if not isinstance(data, list):
         return None
     vacancy = _find_linkedin_vacancy(data, job_id)

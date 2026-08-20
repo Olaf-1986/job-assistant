@@ -17,7 +17,7 @@ def read_headhunter_raw(preferences: Preferences) -> list[RawRecord]:
     path = output_paths(preferences)["raw"]
     if not path.exists():
         return []
-    data = read_json(path)
+    data = read_json(path, [])
     return data if isinstance(data, list) else []
 
 
@@ -25,7 +25,7 @@ def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
     path = output_paths(preferences)["manual_imports"]
     if not path.exists():
         return []
-    data = read_json(path)
+    data = read_json(path, [])
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict) and _is_linkedin_raw(item)]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from threading import Lock
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
@@ -59,6 +60,7 @@ def get_or_create_token() -> str:
 
 def create_app(allowed_origin: str | None = None) -> FastAPI:
     expected_token = get_or_create_token()
+    capture_lock = Lock()
     app = FastAPI(title="Job Assistant Capture Server")
     origins = [allowed_origin] if allowed_origin else []
     app.add_middleware(
@@ -77,7 +79,8 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="invalid capture token")
         preferences = load_preferences()
         try:
-            return process_manual_capture(preferences, payload, auto_open_next=True)
+            with capture_lock:
+                return process_manual_capture(preferences, payload, auto_open_next=True)
         except LinkedInQueueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -89,7 +92,7 @@ def process_manual_capture(
 ) -> dict[str, object]:
     raw = {"query": "manual_capture", "record": {"__source": "manual_capture", **payload.model_dump()}}
     paths = output_paths(preferences)
-    existing_raw = read_json(paths["manual_imports"]) if paths["manual_imports"].exists() else []
+    existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
     queue_result: dict[str, object] = {"matched": False, "job_id": None, "queue_id": None}
     duplicate = False
     if payload.source_label == "linkedin":
