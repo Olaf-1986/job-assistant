@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import html
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -164,7 +166,7 @@ def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
     for rank, vacancy in enumerate(vacancies, start=1):
         lines.extend(
             [
-                f"## {rank}. {vacancy.title} - {vacancy.company or 'Unknown company'}",
+                f"## {rank}. {_markdown_title(vacancy.title)} - {vacancy.company or 'Unknown company'}",
                 f"- Score: {vacancy.score}",
                 f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown) or 'n/a'}",
                 f"- Employment type: {vacancy.employment_type or 'n/a'}",
@@ -184,6 +186,12 @@ def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
             ]
         )
     return "\n".join(lines)
+
+
+def _markdown_title(title: str) -> str:
+    title = re.sub(r"[\r\n]+", " ", title)
+    escaped = re.sub(r"([\\`*_{}\[\]()#+.!|>~\-:/@])", r"\\\1", title)
+    return html.escape(escaped, quote=False)
 
 
 def _blocked_markdown(vacancies: list[NormalizedVacancy]) -> str:

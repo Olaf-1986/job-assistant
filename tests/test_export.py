@@ -5,7 +5,7 @@ import csv
 import pytest
 
 from job_assistant.config import load_preferences
-from job_assistant.export import _csv_value, export_all, sorted_shortlist
+from job_assistant.export import _csv_value, _markdown_title, _shortlist_markdown, export_all, sorted_shortlist
 from job_assistant.filters import apply_filters
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
@@ -76,3 +76,29 @@ def test_csv_value_protects_joined_list_values_and_both_csv_outputs(tmp_path):
             row = next(csv.DictReader(handle))
         assert row["title"] == "'=SUM(A1:A2)"
         assert row["sources"] == "'+source; Remote"
+
+
+def test_markdown_title_sanitizes_injected_structure_and_formatting():
+    title = "# [Click](https://evil.test) **bold** <script>\n## injected"
+
+    sanitized = _markdown_title(title)
+
+    assert "\n" not in sanitized
+    assert "<script>" not in sanitized
+    assert "[Click]" not in sanitized
+    assert "**bold**" not in sanitized
+    assert sanitized.startswith("\\# ")
+    assert "\\#\\# injected" in sanitized
+
+
+def test_markdown_title_keeps_ordinary_title_visually_unchanged():
+    title = "Business Analyst"
+
+    assert _markdown_title(title) == title
+    assert f"## 1. {title} - Acme" in _shortlist_markdown(
+        [
+            normalize_records(
+                [{"query": "feed", "record": {**BUSINESS_ANALYST, "jobTitle": title}}], load_preferences()
+            )[0]
+        ]
+    )
