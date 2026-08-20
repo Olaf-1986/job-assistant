@@ -152,8 +152,10 @@ def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
 
 def _csv_value(value: Any) -> str:
     if isinstance(value, list):
-        return "; ".join(str(item) for item in value)
-    return "" if value is None else str(value)
+        value = "; ".join(str(item) for item in value)
+    else:
+        value = "" if value is None else str(value)
+    return "'" + value if value.startswith(("=", "+", "-", "@", "\t", "\r")) else value
 
 
 def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:

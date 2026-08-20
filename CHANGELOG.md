@@ -22,6 +22,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 - Corrected LinkedIn queue counts to include every pending-compatible status while retaining compatibility with persisted `manual_capture_required` entries.
 - Updated the capture endpoint test harness to use an in-process ASGI transport compatible with the current dependency stack.
+- Protected exported CSV cell values from spreadsheet formula injection while preserving the existing CSV schema and outputs.
 
 ### Removed
 
