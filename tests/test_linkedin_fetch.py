@@ -168,6 +168,8 @@ def test_fetch_imports_and_marks_processed_with_late_keyword_scoring(tmp_path):
     assert queue[0]["pipeline_outcome"] == "shortlisted"
     assert queue[0]["score"] >= 20
     combined = read_json(preferences.outputs.output_dir() / preferences.outputs.combined_json_file)
+    manual = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file)
+    assert manual[0]["record"]["__source"] == "linkedin"
     assert "OpenAPI" in combined[0]["description_text"]
     assert "openapi" in combined[0]["matched_signals"]
 

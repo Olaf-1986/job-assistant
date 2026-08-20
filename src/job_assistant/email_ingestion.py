@@ -19,7 +19,7 @@ from dotenv import dotenv_values
 from .config import Preferences
 from .connectors.headhunter import HeadHunterConnector
 from .linkedin_queue import LEGACY_PENDING_STATUS, PENDING_STATUS, PENDING_STATUSES
-from .models import BatchStats, RawRecord
+from .models import BatchStats, RawRecord, with_raw_source
 from .paths import output_paths
 from .utils import ROOT, canonical_url, normalize_space, read_json, write_json
 
@@ -101,7 +101,9 @@ def sync_email_alerts(
                         candidate["status"] = "hh_lookup_failed"
                     else:
                         candidate["status"] = "imported"
-                        headhunter_raw.append({"query": "email_alert", "record": detail})
+                        headhunter_raw.append(
+                            {"query": "email_alert", "record": with_raw_source(detail, "headhunter", "email alert")}
+                        )
                 candidates_by_key[key] = candidate
             processed_uids.add(uid)
             if message_id:

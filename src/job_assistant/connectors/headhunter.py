@@ -9,7 +9,7 @@ import httpx
 
 from job_assistant.config import HeadHunterSampleConfig, Preferences
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 from job_assistant.role_relevance import title_prefilter_matches
 
 LOGGER = logging.getLogger(__name__)
@@ -46,7 +46,14 @@ class HeadHunterConnector(VacancyConnector):
                         stats.raw_records_received += len(page_records)
                         for record in page_records:
                             detail = self._request_detail(client, record, sample, query, stats) or record
-                            records.append({"query": query, "sample": sample.name, "page": page, "record": detail})
+                            records.append(
+                                {
+                                    "query": query,
+                                    "sample": sample.name,
+                                    "page": page,
+                                    "record": with_raw_source(detail, "headhunter", "HeadHunter API"),
+                                }
+                            )
                         if self.preferences.run.request_delay_seconds:
                             time.sleep(self.preferences.run.request_delay_seconds)
         return records, stats

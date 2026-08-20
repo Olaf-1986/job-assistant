@@ -7,7 +7,7 @@ import httpx
 
 from job_assistant.config import Preferences
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +54,11 @@ class JoobleConnector(VacancyConnector):
                         for job in jobs if isinstance(jobs, list) else []:
                             if isinstance(job, dict):
                                 records.append(
-                                    {"query": query, "location": location, "record": {"__source": "jooble", **job}}
+                                    {
+                                        "query": query,
+                                        "location": location,
+                                        "record": with_raw_source(job, "jooble", "Jooble API"),
+                                    }
                                 )
         stats.raw_records_received = len(records)
         return records, stats

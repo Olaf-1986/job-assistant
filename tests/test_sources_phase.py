@@ -10,6 +10,7 @@ from job_assistant.filters import apply_filters
 from job_assistant.normalize import normalize_records
 from job_assistant.scoring import score_vacancies
 from job_assistant.sources import SourceStatus, already_succeeded_today, load_statuses
+from job_assistant.utils import read_json
 
 runner = CliRunner()
 
@@ -179,6 +180,8 @@ def test_manual_import_command_does_not_make_http_requests(tmp_path, monkeypatch
         ],
     )
     assert result.exit_code == 0, result.output
+    manual = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file)
+    assert manual[0]["record"]["__source"] == "linkedin"
 
 
 def test_daily_guard_and_force_warning(monkeypatch, tmp_path):

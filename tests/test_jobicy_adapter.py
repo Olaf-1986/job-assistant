@@ -18,7 +18,9 @@ def test_jobicy_extracts_records_from_local_fixture():
 
 def test_jobicy_normalizes_core_fields_from_local_fixture():
     preferences = load_preferences()
-    raw_records = [{"query": "jobicy", "record": record} for record in JOBICY_RESPONSE["jobs"]]
+    raw_records = [
+        {"query": "jobicy", "record": {"__source": "jobicy", **record}} for record in JOBICY_RESPONSE["jobs"]
+    ]
     vacancies = normalize_records(raw_records, preferences)
     atlassian = vacancies[0]
     assert atlassian.source == "jobicy"
@@ -38,7 +40,9 @@ def test_jobicy_normalizes_core_fields_from_local_fixture():
 
 def test_jobicy_role_relevance_keeps_ba_sa_for_scoring():
     preferences = load_preferences()
-    raw_records = [{"query": "jobicy", "record": record} for record in JOBICY_RESPONSE["jobs"]]
+    raw_records = [
+        {"query": "jobicy", "record": {"__source": "jobicy", **record}} for record in JOBICY_RESPONSE["jobs"]
+    ]
     vacancies = score_vacancies(apply_filters(normalize_records(raw_records, preferences), preferences), preferences)
     relevant, business_analyst = vacancies
     assert relevant.blocker is False

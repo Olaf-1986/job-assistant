@@ -216,6 +216,7 @@ def test_email_hh_candidates_flow_through_existing_pipeline(monkeypatch, tmp_pat
             BatchStats(requests_made=1, raw_records_received=1),
         ),
     )
+    assert result.headhunter_raw[0]["record"]["__source"] == "headhunter"
     rebuild_from_authoritative_sources(preferences, result.stats, headhunter_raw=result.headhunter_raw)
 
     combined = read_json(preferences.outputs.output_dir() / preferences.outputs.combined_json_file)

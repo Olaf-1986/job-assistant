@@ -18,6 +18,18 @@ def test_headhunter_extracts_records_from_local_fixture():
     assert stats.errors == []
 
 
+def test_headhunter_fetch_tags_raw_records_with_explicit_source(monkeypatch):
+    preferences = load_preferences()
+    connector = HeadHunterConnector(preferences)
+    monkeypatch.setattr(connector, "_request_page", lambda *args: HEADHUNTER_RESPONSE)
+    monkeypatch.setattr(connector, "_request_detail", lambda client, record, *args: record)
+
+    records, _ = connector.fetch()
+
+    assert records
+    assert all(item["record"]["__source"] == "headhunter" for item in records)
+
+
 def test_headhunter_headers_use_env_overrides(monkeypatch):
     monkeypatch.setenv("HH_USER_AGENT", "job-assistant/0.1 (contact: real@example.com)")
     monkeypatch.setenv("HH_ACCESS_TOKEN", "token-value")
@@ -33,8 +45,16 @@ def test_headhunter_headers_use_env_overrides(monkeypatch):
 def test_headhunter_normalizes_remote_and_tbilisi_fields():
     preferences = load_preferences()
     raw_records = [
-        {"query": "Business Analyst", "sample": "remote", "record": HEADHUNTER_RESPONSE["items"][0]},
-        {"query": "Systems Analyst", "sample": "tbilisi_onsite_hybrid", "record": HEADHUNTER_RESPONSE["items"][1]},
+        {
+            "query": "Business Analyst",
+            "sample": "remote",
+            "record": {"__source": "headhunter", **HEADHUNTER_RESPONSE["items"][0]},
+        },
+        {
+            "query": "Systems Analyst",
+            "sample": "tbilisi_onsite_hybrid",
+            "record": {"__source": "headhunter", **HEADHUNTER_RESPONSE["items"][1]},
+        },
     ]
     vacancies = normalize_records(raw_records, preferences)
     remote, tbilisi = vacancies
@@ -57,7 +77,8 @@ def test_headhunter_normalizes_remote_and_tbilisi_fields():
 def test_headhunter_ba_sa_records_pass_role_relevance_and_score():
     preferences = load_preferences()
     raw_records = [
-        {"query": "Business Analyst", "sample": "remote", "record": record} for record in HEADHUNTER_RESPONSE["items"]
+        {"query": "Business Analyst", "sample": "remote", "record": {"__source": "headhunter", **record}}
+        for record in HEADHUNTER_RESPONSE["items"]
     ]
     vacancies = score_vacancies(apply_filters(normalize_records(raw_records, preferences), preferences), preferences)
     assert all(not vacancy.blocker for vacancy in vacancies)
@@ -78,7 +99,10 @@ def test_headhunter_scoring_uses_keyword_near_end_of_full_description():
 
     vacancy = score_vacancies(
         apply_filters(
-            normalize_records([{"query": "Business Analyst", "sample": "remote", "record": record}], preferences),
+            normalize_records(
+                [{"query": "Business Analyst", "sample": "remote", "record": {"__source": "headhunter", **record}}],
+                preferences,
+            ),
             preferences,
         ),
         preferences,
@@ -170,8 +194,8 @@ def test_russia_only_work_location_blocks_but_russian_citizenship_alone_does_not
     filtered = apply_filters(
         normalize_records(
             [
-                {"query": "Business Analyst", "record": russia_only},
-                {"query": "Business Analyst", "record": citizenship},
+                {"query": "Business Analyst", "record": {"__source": "headhunter", **russia_only}},
+                {"query": "Business Analyst", "record": {"__source": "headhunter", **citizenship}},
             ],
             preferences,
         ),

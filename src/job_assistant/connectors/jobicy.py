@@ -7,7 +7,7 @@ import httpx
 
 from job_assistant.config import Preferences
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +27,9 @@ class JobicyConnector(VacancyConnector):
             return [], stats
         records = _extract_records(data, stats)
         stats.raw_records_received = len(records)
-        return [{"query": "jobicy", "record": record} for record in records], stats
+        return [
+            {"query": "jobicy", "record": with_raw_source(record, "jobicy", "Jobicy API")} for record in records
+        ], stats
 
     def _request(self, client: httpx.Client, stats: BatchStats) -> Any | None:
         params = {"count": self.source_config.count}

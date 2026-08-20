@@ -6,7 +6,7 @@ import httpx
 
 from job_assistant.config import Preferences, load_target_companies
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,12 +43,15 @@ class GreenhouseConnector(VacancyConnector):
                         records.append(
                             {
                                 "query": "greenhouse_feed",
-                                "record": {
-                                    "__source": "greenhouse",
-                                    "__company": company.name,
-                                    "__board_token": company.board_token,
-                                    **job,
-                                },
+                                "record": with_raw_source(
+                                    {
+                                        "__company": company.name,
+                                        "__board_token": company.board_token,
+                                        **job,
+                                    },
+                                    "greenhouse",
+                                    "Greenhouse API",
+                                ),
                             }
                         )
         stats.raw_records_received = len(records)

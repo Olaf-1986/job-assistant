@@ -21,6 +21,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 ### Fixed
 
+- Required explicit raw-record source markers, migrated legacy HeadHunter and LinkedIn records at their persistence boundaries, and removed structural source fallback during normalization.
 - Added the `job-assistant` console entry point, replaced placeholder package metadata, and removed the unused root `main.py` placeholder.
 - Made `fetch-all` respect disabled email configuration and isolate sanitized IMAP, SSL, and network failures so the remaining pipeline can complete.
 - Corrected LinkedIn queue counts to include every pending-compatible status while retaining compatibility with persisted `manual_capture_required` entries.

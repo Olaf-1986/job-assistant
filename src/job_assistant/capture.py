@@ -90,7 +90,7 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
 def process_manual_capture(
     preferences: Preferences, payload: ManualCapturePayload, auto_open_next: bool = False
 ) -> dict[str, object]:
-    raw = {"query": "manual_capture", "record": {"__source": "manual_capture", **payload.model_dump()}}
+    raw = {"query": "manual_capture", "record": {"__source": payload.source_label, **payload.model_dump()}}
     paths = output_paths(preferences)
     existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
     queue_result: dict[str, object] = {"matched": False, "job_id": None, "queue_id": None}

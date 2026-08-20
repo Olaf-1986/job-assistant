@@ -94,3 +94,11 @@ class SourceStatus(BaseModel):
 
 
 RawRecord = dict[str, Any]
+
+
+def with_raw_source(record: RawRecord, source: str, boundary: str) -> RawRecord:
+    """Return a copied raw record with an explicit, non-conflicting source marker."""
+    existing = record.get("__source")
+    if existing not in {None, source}:
+        raise ValueError(f"Conflicting source at {boundary}: expected __source={source!r}, got {existing!r}")
+    return {**record, "__source": source}

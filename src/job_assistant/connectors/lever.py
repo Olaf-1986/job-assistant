@@ -6,7 +6,7 @@ import httpx
 
 from job_assistant.config import Preferences, load_target_companies
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,13 +43,16 @@ class LeverConnector(VacancyConnector):
                         records.append(
                             {
                                 "query": "lever_feed",
-                                "record": {
-                                    "__source": "lever",
-                                    "__company": company.name,
-                                    "__site": company.site,
-                                    "__region": company.region,
-                                    **job,
-                                },
+                                "record": with_raw_source(
+                                    {
+                                        "__company": company.name,
+                                        "__site": company.site,
+                                        "__region": company.region,
+                                        **job,
+                                    },
+                                    "lever",
+                                    "Lever API",
+                                ),
                             }
                         )
         stats.raw_records_received = len(records)

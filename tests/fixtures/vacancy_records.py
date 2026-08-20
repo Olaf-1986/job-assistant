@@ -4,6 +4,7 @@ from __future__ import annotations
 def record(title: str, description: str, **overrides):
     slug = title.lower().replace(" ", "-")
     data = {
+        "__source": "jobicy",
         "id": slug,
         "jobTitle": title,
         "companyName": "Acme",
@@ -46,4 +47,4 @@ JUNIOR_ROLE = record("Junior Business Analyst", "<p>Requirements gathering and u
 INTERNSHIP = record("Business Analyst Intern", "<p>Internship with requirements documentation.</p>")
 CRYPTO_ROLE = record("Integration Analyst", "<p>Crypto payments integrations, REST, OpenAPI, JSON.</p>")
 JIRA_USER = record("Business Analyst", "<p>Use Jira and Confluence for user stories.</p>")
-MALFORMED = {"id": "missing-title", "jobDescription": "<p>No title</p>"}
+MALFORMED = {"__source": "jobicy", "id": "missing-title", "jobDescription": "<p>No title</p>"}

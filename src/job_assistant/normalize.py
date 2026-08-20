@@ -77,24 +77,12 @@ def parse_optional_float(value: Any, field_name: str, warnings: list[str]) -> fl
 
 def normalize_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
     source = record.get("__source")
-    if source == "jooble":
-        return _normalize_jooble_record(record, query, preferences)
-    if source == "arbeitnow":
-        return _normalize_arbeitnow_record(record, query, preferences)
-    if source == "greenhouse":
-        return _normalize_greenhouse_record(record, query, preferences)
-    if source == "lever":
-        return _normalize_lever_record(record, query, preferences)
-    if source == "manual":
-        return _normalize_manual_record(record, query, preferences)
-    if source == "manual_capture":
-        return _normalize_manual_capture_record(record, query, preferences)
-    if _is_headhunter_record(record):
-        return _normalize_headhunter_record(record, query, preferences)
-    if _is_jobicy_record(record):
-        return _normalize_jobicy_record(record, query, preferences)
-    LOGGER.warning("Skipping record from an unknown source: %s", source)
-    return None
+    if not isinstance(source, str) or not source:
+        raise ValueError("Raw record is missing required __source")
+    normalizer = _SOURCE_NORMALIZERS.get(source)
+    if normalizer is None:
+        raise ValueError(f"Raw record has unknown __source: {source!r}")
+    return normalizer(record, query, preferences)
 
 
 def _base_vacancy(
@@ -195,10 +183,6 @@ def _headhunter_work_mode(record: RawRecord, schedule: str | None, location_text
     if "офис" in lowered or "office" in lowered or "onsite" in lowered:
         return "onsite"
     return detect_work_mode(location_text, preferences)
-
-
-def _is_headhunter_record(record: RawRecord) -> bool:
-    return "alternate_url" in record and "employer" in record and "area" in record
 
 
 def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
@@ -418,27 +402,34 @@ def _normalize_manual_record(record: RawRecord, query: str, preferences: Prefere
     )
 
 
-def _normalize_manual_capture_record(
-    record: RawRecord, query: str, preferences: Preferences
-) -> NormalizedVacancy | None:
-    source_label = record.get("source_label") if isinstance(record.get("source_label"), str) else "other"
+def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
+    declared_labels = {
+        label for label in (record.get("source_label"), record.get("manual_source")) if isinstance(label, str) and label
+    }
+    if declared_labels and declared_labels != {"linkedin"}:
+        raise ValueError(
+            f"Conflicting raw source: __source='linkedin' but declared source is {sorted(declared_labels)!r}"
+        )
     explicit_title = (
         record.get("vacancy_title")
         if isinstance(record.get("vacancy_title"), str) and record.get("vacancy_title").strip()
         else None
     )
-    page_title = explicit_title or (
-        record.get("document_title") if isinstance(record.get("document_title"), str) else "Captured vacancy"
-    )
+    page_title = explicit_title or record.get("title") or record.get("document_title") or "Captured vacancy"
+    if not isinstance(page_title, str):
+        page_title = "Captured vacancy"
     company = (
         record.get("company") if isinstance(record.get("company"), str) and record.get("company").strip() else None
     )
     selected = record.get("selected_text") if isinstance(record.get("selected_text"), str) else ""
-    visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else ""
+    visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else record.get("text") or ""
+    if not isinstance(visible, str):
+        visible = ""
     text = selected.strip() or visible.strip() or page_title
+    page_url = record.get("page_url") if isinstance(record.get("page_url"), str) else record.get("url")
     return _base_vacancy(
-        source_label,
-        str(record.get("page_url") or "") or None,
+        "linkedin",
+        str(page_url or "") or None,
         query,
         page_title,
         company,
@@ -446,7 +437,7 @@ def _normalize_manual_capture_record(
         text,
         text,
         None,
-        record.get("page_url") if isinstance(record.get("page_url"), str) else None,
+        page_url if isinstance(page_url, str) else None,
         preferences,
         imported_manually=True,
         source_metadata={
@@ -455,10 +446,6 @@ def _normalize_manual_capture_record(
             "document_title": record.get("document_title"),
         },
     )
-
-
-def _is_jobicy_record(record: RawRecord) -> bool:
-    return any(key in record for key in ("jobTitle", "jobDescription", "jobGeo", "jobType", "jobLevel"))
 
 
 def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
@@ -530,7 +517,25 @@ def normalize_records(raw_records: list[RawRecord], preferences: Preferences) ->
         if not isinstance(record, dict):
             LOGGER.warning("Skipping malformed non-object API record: %s", item)
             continue
+        container_source = item.get("__source") if isinstance(item, dict) and "record" in item else None
+        record_source = record.get("__source")
+        if container_source is not None and container_source != record_source:
+            raise ValueError(
+                f"Conflicting raw sources: wrapper __source={container_source!r}, record __source={record_source!r}"
+            )
         vacancy = normalize_record(record, query, preferences)
         if vacancy:
             normalized.append(vacancy)
     return normalized
+
+
+_SOURCE_NORMALIZERS = {
+    "headhunter": _normalize_headhunter_record,
+    "linkedin": _normalize_linkedin_record,
+    "jooble": _normalize_jooble_record,
+    "arbeitnow": _normalize_arbeitnow_record,
+    "greenhouse": _normalize_greenhouse_record,
+    "lever": _normalize_lever_record,
+    "manual": _normalize_manual_record,
+    "jobicy": _normalize_jobicy_record,
+}

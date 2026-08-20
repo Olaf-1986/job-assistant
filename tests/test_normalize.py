@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from job_assistant.config import load_preferences
-from job_assistant.normalize import html_to_text, normalize_records
+from job_assistant.normalize import html_to_text, normalize_record, normalize_records
 from tests.fixtures.vacancy_records import BUSINESS_ANALYST, MALFORMED, RUSSIAN_ROLE
 
 
@@ -31,3 +33,23 @@ def test_normalize_warns_on_invalid_salary_without_crashing():
     assert len(normalized) == 1
     assert normalized[0].salary_min is None
     assert "invalid numeric value for annualSalaryMin" in normalized[0].warnings[0]
+
+
+@pytest.mark.parametrize(
+    ("record", "message"),
+    [
+        ({}, "missing required __source"),
+        ({"__source": "telegram"}, "unknown __source: 'telegram'"),
+    ],
+)
+def test_normalize_requires_known_explicit_source(record, message):
+    with pytest.raises(ValueError, match=message):
+        normalize_record(record, "test", load_preferences())
+
+
+def test_normalize_rejects_conflicting_wrapper_and_record_sources():
+    with pytest.raises(ValueError, match="Conflicting raw sources"):
+        normalize_records(
+            [{"__source": "headhunter", "query": "test", "record": {"__source": "linkedin"}}],
+            load_preferences(),
+        )

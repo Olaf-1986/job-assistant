@@ -381,7 +381,7 @@ def import_manual(
     raw = {
         "query": "manual_import",
         "record": {
-            "__source": "manual",
+            "__source": source,
             "manual_source": source,
             "url": url,
             "text": text,

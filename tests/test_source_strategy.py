@@ -18,7 +18,7 @@ from job_assistant.config import load_preferences
 from job_assistant.linkedin_queue import open_next_pending
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
-from job_assistant.persistence import rebuild_from_authoritative_sources
+from job_assistant.persistence import read_headhunter_raw, read_linkedin_manual_raw, rebuild_from_authoritative_sources
 from job_assistant.sources import load_statuses
 from job_assistant.utils import read_json, write_json
 from tests.fixtures.headhunter_records import HEADHUNTER_RESPONSE
@@ -183,6 +183,8 @@ def test_capture_endpoint_authentication_payload_and_explicit_title_company(monk
     assert combined[0]["source"] == "linkedin"
     assert combined[0]["title"] == "LinkedIn System Analyst"
     assert combined[0]["company"] == "LinkedIn Acme"
+    manual = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file)
+    assert manual[0]["record"]["__source"] == "linkedin"
 
 
 def test_linkedin_queue_capture_matches_by_job_id_and_updates_status(monkeypatch, tmp_path):
@@ -236,6 +238,27 @@ def test_linkedin_queue_capture_matches_by_job_id_and_updates_status(monkeypatch
     assert candidates[0]["pipeline_outcome"] in {"shortlisted", "blocked"}
     manual = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file)
     assert len(manual) == 1
+    assert manual[0]["record"]["__source"] == "linkedin"
+
+
+def test_legacy_authoritative_records_get_source_tags_at_known_boundaries(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    raw_path = preferences.outputs.output_dir() / preferences.outputs.raw_file
+    manual_path = preferences.outputs.output_dir() / preferences.outputs.manual_imports_file
+    write_json(raw_path, [{"query": "legacy", "record": {"id": "legacy-hh"}}])
+    write_json(manual_path, [{"query": "legacy", "record": {"page_url": "https://linkedin.test/jobs/1"}}])
+
+    assert read_headhunter_raw(preferences)[0]["record"]["__source"] == "headhunter"
+    assert read_linkedin_manual_raw(preferences)[0]["record"]["__source"] == "linkedin"
+
+
+def test_authoritative_source_boundary_rejects_conflicting_source(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    raw_path = preferences.outputs.output_dir() / preferences.outputs.raw_file
+    write_json(raw_path, [{"query": "conflict", "record": {"__source": "linkedin"}}])
+
+    with pytest.raises(ValueError, match="Conflicting source at HeadHunter raw store"):
+        read_headhunter_raw(preferences)
 
 
 def test_linkedin_queue_duplicate_capture_does_not_append_again(monkeypatch, tmp_path):
@@ -676,7 +699,7 @@ def test_manual_capture_normalization_uses_explicit_title_company(tmp_path):
             {
                 "query": "manual_capture",
                 "record": {
-                    "__source": "manual_capture",
+                    "__source": "linkedin",
                     "source_label": "linkedin",
                     "page_url": "https://linkedin.test/jobs/1",
                     "document_title": "Browser Title",
@@ -875,7 +898,13 @@ def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, t
     assert [(item["source"], item["title"], item.get("company")) for item in after] == [
         (item["source"], item["title"], item.get("company")) for item in before
     ]
-    assert read_json(raw_path) == hh_raw
+    assert read_json(raw_path) == [
+        {
+            "query": "Business Analyst",
+            "sample": "remote",
+            "record": {"__source": "headhunter", **HEADHUNTER_RESPONSE["items"][0]},
+        }
+    ]
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ import httpx
 
 from job_assistant.config import Preferences
 from job_assistant.connectors.base import VacancyConnector
-from job_assistant.models import BatchStats, RawRecord
+from job_assistant.models import BatchStats, RawRecord, with_raw_source
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,12 @@ class ArbeitnowConnector(VacancyConnector):
                     break
                 for job in data.get("data", []) if isinstance(data, dict) else []:
                     if isinstance(job, dict):
-                        records.append({"query": "arbeitnow_feed", "record": {"__source": "arbeitnow", **job}})
+                        records.append(
+                            {
+                                "query": "arbeitnow_feed",
+                                "record": with_raw_source(job, "arbeitnow", "Arbeitnow API"),
+                            }
+                        )
                 links = data.get("links", {}) if isinstance(data, dict) else {}
                 url = links.get("next") if isinstance(links, dict) and isinstance(links.get("next"), str) else None
         stats.raw_records_received = len(records)
