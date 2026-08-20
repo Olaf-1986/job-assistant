@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 import logging
-import re
 from pathlib import Path
 from typing import Annotated
 
@@ -24,6 +23,7 @@ from .connectors.jobicy import JobicyConnector
 from .connectors.jooble import JoobleConnector
 from .connectors.lever import LeverConnector
 from .email_ingestion import sync_email_alerts
+from .errors import sanitize_error
 from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_linkedin, run_login
 from .linkedin_queue import (
     LinkedInQueueError,
@@ -430,7 +430,7 @@ def _print_summary(summary: dict) -> None:
     ]:
         table.add_row(key, str(summary.get(key)))
     if summary.get("errors"):
-        errors = [_safe_error_detail(error) for error in summary["errors"]]
+        errors = [sanitize_error(error) for error in summary["errors"]]
         table.add_row("errors", str(len(errors)))
         table.add_row("error_details", "\n".join(errors[:5]))
     console.print(table)
@@ -438,14 +438,6 @@ def _print_summary(summary: dict) -> None:
 
 def _tag_email_errors(errors: list[str]) -> list[str]:
     return [error if error.startswith("email ") else f"email request=imap_sync: {error}" for error in errors]
-
-
-def _safe_error_detail(error: str) -> str:
-    sanitized = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s,;]+", r"\1REDACTED", error)
-    sanitized = re.sub(r"(?i)(access_token|token|password|secret)=([^\s&;,]+)", r"\1=REDACTED", sanitized)
-    sanitized = re.sub(r"(?i)(bearer\s+)[^\s,;]+", r"\1REDACTED", sanitized)
-    sanitized = re.sub(r"response_body=.*", "response_body=[omitted]", sanitized)
-    return sanitized if len(sanitized) <= 240 else f"{sanitized[:237]}..."
 
 
 def _print_linkedin_queue_status(candidates: list[dict]) -> None:

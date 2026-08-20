@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Preferences
+from .errors import sanitize_error
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
 from .utils import ensure_directory, write_json
@@ -67,7 +68,7 @@ def export_all(
         "role_review_count": len(role_review),
         "shortlist_count": len(shortlist),
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
-        "errors": stats.errors,
+        "errors": [sanitize_error(error) for error in stats.errors],
     }
     write_json(paths["summary"], summary)
     return summary

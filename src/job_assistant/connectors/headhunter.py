@@ -192,11 +192,9 @@ def _format_http_error(exc: Exception) -> str:
     if response.status_code in {401, 403}:
         return (
             "authentication_required: HeadHunter access is restricted; configure HH_ACCESS_TOKEN; "
-            f"response_body={body[:500]!r}"
+            f"http_status={response.status_code}"
         )
-    if len(body) > 500:
-        body = f"{body[:500]}..."
-    return f"{exc}; response_body={body!r}"
+    return f"HeadHunter HTTP request failed; http_status={response.status_code}"
 
 
 def _extract_records(data: Any, stats: BatchStats, sample: str, query: str, page: int) -> list[dict[str, Any]]:

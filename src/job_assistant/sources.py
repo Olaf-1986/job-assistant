@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Preferences, load_target_companies
+from .errors import sanitize_error
 from .models import SourceStatus
 from .utils import read_json, utc_now, write_json
 
@@ -61,7 +62,7 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
             credential_status=credential_status,
             company_list_status=company_list_status,
             last_successful_run=item.get("last_successful_run"),
-            last_error=item.get("last_error"),
+            last_error=(sanitize_error(item.get("last_error")) if item.get("last_error") is not None else None),
             status=item.get("status", "configured"),
             records=int(item.get("records", 0) or 0),
             requests_made=int(item.get("requests_made", 0) or 0),
@@ -80,7 +81,13 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
 
 
 def write_statuses(preferences: Preferences, statuses: dict[str, SourceStatus]) -> None:
-    write_json(status_path(preferences), {name: status.model_dump(mode="json") for name, status in statuses.items()})
+    serialized = {}
+    for name, status in statuses.items():
+        payload = status.model_dump(mode="json")
+        if payload["last_error"] is not None:
+            payload["last_error"] = sanitize_error(payload["last_error"])
+        serialized[name] = payload
+    write_json(status_path(preferences), serialized)
 
 
 def already_succeeded_today(status: SourceStatus) -> bool:
@@ -116,7 +123,7 @@ def mark_status(
     current.relevant_ratio = round(role_relevant_count / records, 4) if records else None
     if records:
         current.last_ten_run_ratios = [*current.last_ten_run_ratios, current.relevant_ratio or 0.0][-10:]
-    current.last_error = error
+    current.last_error = sanitize_error(error) if error is not None else None
     if status == "success":
         current.last_successful_run = utc_now().isoformat()
     statuses[source] = current
