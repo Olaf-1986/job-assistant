@@ -11,6 +11,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Added repository-wide agent instructions for safe, consistent development and verification.
 - Added Ruff configuration and pinned GitHub Actions checks for formatting, linting, tests, and configuration validation.
 - Added a safe `.env.example` setup template for implemented workflows, with disabled legacy configuration clearly separated.
+- Added uvicorn as the runtime dependency for the local capture server.
 
 ### Changed
 

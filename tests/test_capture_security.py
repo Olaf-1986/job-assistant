@@ -92,18 +92,25 @@ def test_token_file_changes_do_not_rotate_active_token(monkeypatch, tmp_path):
 
 def test_run_capture_server_loads_token_only_through_create_app(monkeypatch, capsys):
     calls: list[int] = []
+    uvicorn_calls: list[tuple[tuple, dict]] = []
 
     def get_token() -> str:
         calls.append(1)
         return "synthetic-run-token"
 
     monkeypatch.setattr("job_assistant.capture.get_or_create_token", get_token)
-    fake_uvicorn = SimpleNamespace(run=lambda *args, **kwargs: None)
+
+    def fake_run(*args, **kwargs):
+        uvicorn_calls.append((args, kwargs))
+
+    fake_uvicorn = SimpleNamespace(run=fake_run)
     monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
 
     run_capture_server()
 
     assert calls == [1]
+    assert len(uvicorn_calls) == 1
+    assert uvicorn_calls[0][1] == {"host": "127.0.0.1", "port": 8765}
     assert "synthetic-run-token" not in capsys.readouterr().out
 
 
