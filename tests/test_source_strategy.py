@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import imaplib
+import socket
+import ssl
 from pathlib import Path
 
 import fastapi.routing
@@ -13,6 +16,7 @@ from job_assistant.capture import create_app
 from job_assistant.cli import _fetch_all_sources, _fetch_source, app
 from job_assistant.config import load_preferences
 from job_assistant.linkedin_queue import open_next_pending
+from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
 from job_assistant.persistence import rebuild_from_authoritative_sources
 from job_assistant.sources import load_statuses
@@ -108,6 +112,31 @@ def test_fetch_all_cli_never_starts_linkedin_playwright(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert automatic_sources == ["headhunter"]
+
+
+def test_fetch_all_skips_email_sync_when_email_is_disabled(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    disabled_sources = preferences.sources.model_copy(
+        update={"email": preferences.sources.email.model_copy(update={"enabled": False})}
+    )
+    preferences = preferences.model_copy(update={"sources": disabled_sources})
+    sync_calls: list[object] = []
+
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+    monkeypatch.setattr(
+        "job_assistant.connectors.headhunter.HeadHunterConnector.fetch",
+        lambda self: ([{"query": "email-disabled", "record": HEADHUNTER_RESPONSE["items"][0]}], BatchStats()),
+    )
+    monkeypatch.setattr("job_assistant.cli.sync_email_alerts", lambda *args, **kwargs: sync_calls.append(args))
+
+    result = runner.invoke(app, ["fetch-all", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert sync_calls == []
+    combined = read_json(preferences.outputs.output_dir() / preferences.outputs.combined_json_file)
+    assert [(item["source"], item["source_id"]) for item in combined] == [
+        ("headhunter", str(HEADHUNTER_RESPONSE["items"][0]["id"]))
+    ]
 
 
 def test_linkedin_source_status_is_explicit_queue_processing(tmp_path):
@@ -849,58 +878,71 @@ def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, t
     assert read_json(raw_path) == hh_raw
 
 
-def test_fetch_all_email_failure_preserves_existing_data(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "email_error",
+    [
+        imaplib.IMAP4.error("imap failure password=SYNTHETIC"),
+        ssl.SSLError("ssl failure secret=SYNTHETIC"),
+        socket.gaierror(-2, "network failure token=SYNTHETIC"),
+    ],
+)
+def test_fetch_all_isolates_email_failures_and_finishes_pipeline(monkeypatch, tmp_path, email_error):
     preferences = temp_preferences(tmp_path)
-    raw_path = preferences.outputs.output_dir() / preferences.outputs.raw_file
-    manual_path = preferences.outputs.output_dir() / preferences.outputs.manual_imports_file
     combined_path = preferences.outputs.output_dir() / preferences.outputs.combined_json_file
-    hh_raw = [{"query": "Business Analyst", "sample": "remote", "record": HEADHUNTER_RESPONSE["items"][0]}]
-    write_json(raw_path, hh_raw)
-    write_json(
-        manual_path,
-        [
-            {
-                "query": "manual_capture",
-                "record": {
-                    "__source": "manual_capture",
-                    "source_label": "linkedin",
-                    "page_url": "https://linkedin.test/jobs/2",
-                    "document_title": "Old",
-                    "vacancy_title": "LinkedIn Analyst",
-                    "company": "LinkedIn Co",
-                    "visible_text": "Requirements analysis, BPMN and API integrations.",
-                    "hostname": "linkedin.test",
-                    "captured_at": "now",
-                },
-            }
-        ],
-    )
-    rebuild_from_authoritative_sources(preferences)
-    before = [(item["source"], item["title"], item.get("company")) for item in read_json(combined_path)]
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
     monkeypatch.setattr(
         "job_assistant.connectors.headhunter.HeadHunterConnector.fetch",
         lambda self: (
-            [],
-            __import__("job_assistant.models", fromlist=["BatchStats"]).BatchStats(errors=["mock_hh_failure"]),
+            [{"query": "Business Analyst", "sample": "remote", "record": HEADHUNTER_RESPONSE["items"][0]}],
+            BatchStats(requests_made=1, raw_records_received=1),
         ),
     )
     monkeypatch.setattr(
         "job_assistant.cli.sync_email_alerts",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("email_connection_failed password=super-secret")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(email_error),
     )
 
     result = runner.invoke(app, ["fetch-all", "--force"])
 
     assert result.exit_code == 0, result.output
-    after = [(item["source"], item["title"], item.get("company")) for item in read_json(combined_path)]
-    assert after == before
+    after = read_json(combined_path)
+    assert [(item["source"], item["source_id"]) for item in after] == [
+        ("headhunter", str(HEADHUNTER_RESPONSE["items"][0]["id"]))
+    ]
     assert "errors" in result.output
-    assert "mock_hh_failure" in result.output
     assert "email request=imap_sync" in result.output
-    assert "email_connection_failed" in result.output
-    assert "super-secret" not in result.output
-    assert "password=REDACTED" in result.output
+    assert "SYNTHETIC" not in result.output
+    assert "=REDACTED" in result.output
+    email_status = load_statuses(preferences)["email"]
+    assert email_status.status == "error"
+    assert email_status.last_error is not None
+    assert "SYNTHETIC" not in email_status.last_error
+    assert "=REDACTED" in email_status.last_error
+
+
+@pytest.mark.parametrize(
+    "email_error",
+    [
+        imaplib.IMAP4.error("imap failure password=SYNTHETIC"),
+        ssl.SSLError("ssl failure secret=SYNTHETIC"),
+        socket.gaierror(-2, "network failure token=SYNTHETIC"),
+    ],
+)
+def test_email_sync_cli_sanitizes_ordinary_email_failures(monkeypatch, tmp_path, email_error):
+    preferences = temp_preferences(tmp_path)
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+    monkeypatch.setattr(
+        "job_assistant.cli.sync_email_alerts",
+        lambda *args, **kwargs: (_ for _ in ()).throw(email_error),
+    )
+
+    result = runner.invoke(app, ["email-sync", "--since-days", "30"])
+
+    assert result.exit_code == 1
+    assert "Email sync failed:" in result.output
+    assert "SYNTHETIC" not in result.output
+    assert "=REDACTED" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_email_sync_cli_dry_run_does_not_require_live_services(monkeypatch, tmp_path):

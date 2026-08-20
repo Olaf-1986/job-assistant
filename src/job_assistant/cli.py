@@ -123,25 +123,26 @@ def fetch_all(
             stats.errors[-1] if stats.errors else None,
         )
     email_raw: list[dict] = []
-    try:
-        email_result = sync_email_alerts(preferences, since_days=30)
-        email_raw = email_result.headhunter_raw
-        combined_stats.requests_made += email_result.stats.requests_made
-        combined_stats.raw_records_received += email_result.stats.raw_records_received
-        email_errors = _tag_email_errors(email_result.stats.errors)
-        combined_stats.errors.extend(email_errors)
-        mark_status(
-            preferences,
-            "email",
-            "success" if not email_errors else "error",
-            len(email_result.candidates),
-            email_result.stats.requests_made,
-            email_errors[-1] if email_errors else None,
-        )
-    except RuntimeError as exc:
-        error = _tag_email_errors([str(exc)])[0]
-        combined_stats.errors.append(error)
-        mark_status(preferences, "email", "error", 0, 0, error)
+    if preferences.sources.email.enabled:
+        try:
+            email_result = sync_email_alerts(preferences, since_days=30)
+            email_raw = email_result.headhunter_raw
+            combined_stats.requests_made += email_result.stats.requests_made
+            combined_stats.raw_records_received += email_result.stats.raw_records_received
+            email_errors = _tag_email_errors(email_result.stats.errors)
+            combined_stats.errors.extend(email_errors)
+            mark_status(
+                preferences,
+                "email",
+                "success" if not email_errors else "error",
+                len(email_result.candidates),
+                email_result.stats.requests_made,
+                email_errors[-1] if email_errors else None,
+            )
+        except Exception as exc:
+            error = _tag_email_errors([exc])[0]
+            combined_stats.errors.append(error)
+            mark_status(preferences, "email", "error", 0, 0, error)
     if all_raw:
         headhunter_raw = [*all_raw, *email_raw]
     elif email_raw:
@@ -166,9 +167,9 @@ def email_sync(
     preferences = _load_or_exit()
     try:
         result = sync_email_alerts(preferences, since_days=since_days, dry_run=dry_run, full_refresh=full_refresh)
-    except RuntimeError as exc:
-        console.print(f"[red]Email sync failed:[/red] {exc}")
-        raise typer.Exit(1) from exc
+    except Exception as exc:
+        console.print(f"[red]Email sync failed:[/red] {sanitize_error(exc)}")
+        raise typer.Exit(1) from None
     headhunter_raw = None if dry_run else [*read_headhunter_raw(preferences), *result.headhunter_raw]
     summary = {
         "requests_made": result.stats.requests_made,
@@ -436,8 +437,12 @@ def _print_summary(summary: dict) -> None:
     console.print(table)
 
 
-def _tag_email_errors(errors: list[str]) -> list[str]:
-    return [error if error.startswith("email ") else f"email request=imap_sync: {error}" for error in errors]
+def _tag_email_errors(errors: list[object]) -> list[str]:
+    return [
+        sanitized if sanitized.startswith("email ") else f"email request=imap_sync: {sanitized}"
+        for error in errors
+        if (sanitized := sanitize_error(error))
+    ]
 
 
 def _print_linkedin_queue_status(candidates: list[dict]) -> None:
