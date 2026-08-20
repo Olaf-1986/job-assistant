@@ -50,15 +50,3 @@ def test_negative_adjustments():
     assert scored(JUNIOR_ROLE).score < scored(BUSINESS_ANALYST).score
     assert scored(INTERNSHIP).score < scored(BUSINESS_ANALYST).score
     assert any("-10 crypto" in line for line in scored(CRYPTO_ROLE).score_breakdown)
-
-
-def test_international_english_signal_does_not_add_legacy_bonus():
-    plain = scored({**BUSINESS_ANALYST, "jobExcerpt": "", "jobDescription": "<p>Requirements gathering and BPMN.</p>"})
-    assert not any("English/international" in line for line in plain.score_breakdown)
-    international = scored(
-        {
-            **BUSINESS_ANALYST,
-            "jobDescription": "<p>International distributed team. Requirements gathering and BPMN.</p>",
-        }
-    )
-    assert not any("English/international" in line for line in international.score_breakdown)

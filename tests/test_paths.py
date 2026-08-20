@@ -23,7 +23,6 @@ def test_output_paths_preserve_configured_keys_and_filenames(tmp_path):
         "combined_csv": outputs.combined_csv_file,
         "combined_shortlist": outputs.combined_shortlist_file,
         "manual_imports": outputs.manual_imports_file,
-        "source_quality": outputs.source_quality_file,
         "email_candidates": outputs.email_candidates_file,
         "linkedin_email_queue": outputs.linkedin_email_queue_file,
         "email_state": outputs.email_state_file,

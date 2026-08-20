@@ -9,7 +9,6 @@ dependencies = [
     "beautifulsoup4>=4.15.0",
     "fastapi>=0.116.0",
     "httpx>=0.28.1",
-    "pandas>=3.0.5",
     "playwright>=1.57.0",
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",

@@ -58,11 +58,9 @@ sources:
   greenhouse:
     enabled: false
     mode: target_company_only
-    company_config: config/target_companies.yaml
   lever:
     enabled: false
     mode: target_company_only
-    company_config: config/target_companies.yaml
   email:
     enabled: true
     mode: imap_read_only
@@ -111,20 +109,15 @@ queries:
     - Product Manager
     - Менеджер продукта
     - Продуктовый менеджер
-  excluded_target_titles:
-    - Product Owner
 
 languages:
   accepted:
     - en
     - ru
     - de
-  international_english_bonus: 0
   russian_penalty: 0
 
 location:
-  remote_allowed: true
-  timezone_filter_enabled: false
   onsite_hybrid_allowed_cities:
     - Tbilisi
     - Тбилиси
@@ -181,10 +174,6 @@ blockers:
     - customer support
     - support specialist
     - help desk
-  citizenship_patterns:
-    - citizenship required
-    - must be a citizen of
-    - only citizens of
   non_blocking_work_auth_countries:
     - Georgia
     - Грузия
@@ -431,7 +420,6 @@ outputs:
   combined_shortlist_file: combined_shortlist.md
   source_status_file: source_status.json
   manual_imports_file: manual_imports.json
-  source_quality_file: source_quality.json
   email_candidates_file: email_candidates.json
   linkedin_email_queue_file: linkedin_email_queue.md
   email_state_file: email_state.json

@@ -76,46 +76,6 @@ def export_all(
     return summary
 
 
-def rebuild_exports(vacancies: list[NormalizedVacancy], preferences: Preferences) -> dict[str, Any]:
-    paths = output_paths(preferences)
-    ensure_directory(paths["dir"])
-    shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
-    blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
-    role_review = sorted(
-        [v for v in vacancies if not v.blocker and v.requires_manual_role_review],
-        key=lambda item: item.score,
-        reverse=True,
-    )
-    eligible_count = sum(
-        not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies
-    )
-    write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-    write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-    _write_csv(paths["csv"], vacancies)
-    _write_csv(paths["combined_csv"], vacancies)
-    paths["shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
-    paths["combined_shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
-    paths["blocked"].write_text(_blocked_markdown(blocked), encoding="utf-8")
-    paths["role_review"].write_text(_role_review_markdown(role_review), encoding="utf-8")
-    summary = {
-        "run_timestamp": datetime.now().astimezone().isoformat(),
-        "source": _source_name(vacancies, [], preferences),
-        "queries_executed": sorted({q for vacancy in vacancies for q in vacancy.source_queries}),
-        "requests_made": 0,
-        "raw_records_received": 0,
-        "normalized_records": len(vacancies),
-        "duplicates_merged": 0,
-        "blocked_count": len(blocked),
-        "eligible_count": eligible_count,
-        "role_review_count": len(role_review),
-        "shortlist_count": len(shortlist),
-        "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
-        "errors": [],
-    }
-    write_json(paths["summary"], summary)
-    return summary
-
-
 def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
     fields = [
         "score",

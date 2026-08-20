@@ -90,7 +90,6 @@ class SourceStatus(BaseModel):
     card_prefilter_count: int = 0
     opened_vacancy_count: int = 0
     manual_review_count: int = 0
-    configured_search_count: int = 0
 
 
 RawRecord = dict[str, Any]

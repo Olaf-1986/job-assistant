@@ -50,16 +50,8 @@ def temp_preferences(tmp_path: Path):
     )
 
 
-def test_fetch_all_runs_exactly_headhunter_even_if_optional_sources_enabled(tmp_path):
-    preferences = temp_preferences(tmp_path)
-    assert preferences.sources.linkedin.enabled is True
-    sources_config = preferences.sources.model_copy(
-        update={
-            "jobicy": preferences.sources.jobicy.model_copy(update={"enabled": True}),
-            "greenhouse": preferences.sources.greenhouse.model_copy(update={"enabled": True}),
-        }
-    )
-    assert _fetch_all_sources(preferences.model_copy(update={"sources": sources_config})) == ["headhunter"]
+def test_fetch_all_runs_exactly_headhunter():
+    assert _fetch_all_sources() == ["headhunter"]
 
 
 def test_linkedin_fetch_is_actionable_without_starting_playwright(monkeypatch, tmp_path):

@@ -54,7 +54,6 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
             entries = getattr(companies, source).get("companies", [])
             enabled_entries = [entry for entry in entries if entry.enabled]
             company_list_status = "ready" if enabled_entries else "empty_company_list"
-        configured_search_count = 0
         statuses[source] = SourceStatus(
             source=source,
             enabled=bool(getattr(config, "enabled", False)),
@@ -75,7 +74,6 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
             card_prefilter_count=int(item.get("card_prefilter_count", 0) or 0),
             opened_vacancy_count=int(item.get("opened_vacancy_count", 0) or 0),
             manual_review_count=int(item.get("manual_review_count", 0) or 0),
-            configured_search_count=configured_search_count or int(item.get("configured_search_count", 0) or 0),
         )
     return statuses
 

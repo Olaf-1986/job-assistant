@@ -20,7 +20,6 @@ def output_paths(preferences: Preferences) -> dict[str, Path]:
         "combined_csv": directory / preferences.outputs.combined_csv_file,
         "combined_shortlist": directory / preferences.outputs.combined_shortlist_file,
         "manual_imports": directory / preferences.outputs.manual_imports_file,
-        "source_quality": directory / preferences.outputs.source_quality_file,
         "email_candidates": directory / preferences.outputs.email_candidates_file,
         "linkedin_email_queue": directory / preferences.outputs.linkedin_email_queue_file,
         "email_state": directory / preferences.outputs.email_state_file,

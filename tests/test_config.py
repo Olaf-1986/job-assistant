@@ -11,13 +11,13 @@ from job_assistant.env import load_project_env
 def test_config_validation_accepts_default_preferences():
     preferences = load_preferences()
     assert preferences.run.pages_per_query == 1
-    assert "Product Owner" in preferences.queries.excluded_target_titles
+    assert not hasattr(preferences.queries, "excluded_target_titles")
+    assert not hasattr(preferences.blockers, "citizenship_patterns")
     assert preferences.sources.linkedin.enabled is True
     assert preferences.sources.linkedin.mode == "manual_or_explicit_playwright"
     assert preferences.sources.linkedin.manual_run_only is True
     assert not hasattr(preferences.sources, "habr_browser")
     assert not hasattr(preferences.sources, "wellfound_browser")
-    assert preferences.languages.international_english_bonus == 0
 
 
 def test_config_validation_rejects_invalid_yaml(tmp_path: Path):

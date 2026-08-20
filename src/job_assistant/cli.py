@@ -105,7 +105,7 @@ def fetch_all(
     preferences = _load_or_exit()
     all_raw: list[dict] = []
     combined_stats = BatchStats()
-    for source in _fetch_all_sources(preferences):
+    for source in _fetch_all_sources():
         raw_records, stats, skipped = _fetch_source(preferences, source, force)
         combined_stats.requests_made += stats.requests_made
         combined_stats.raw_records_received += stats.raw_records_received
@@ -230,7 +230,6 @@ def sources_command() -> None:
     table.add_column("Last error")
     table.add_column("Status")
     table.add_column("Priority", no_wrap=True)
-    table.add_column("Searches", no_wrap=True)
     table.add_column("Raw", no_wrap=True)
     table.add_column("Cards", no_wrap=True)
     table.add_column("Opened", no_wrap=True)
@@ -247,7 +246,6 @@ def sources_command() -> None:
             status.last_error or "n/a",
             status.status,
             status.priority,
-            str(status.configured_search_count),
             str(status.raw_count),
             str(status.card_prefilter_count),
             str(status.opened_vacancy_count),
@@ -510,13 +508,12 @@ def _fetch_source(preferences, source: str, force: bool) -> tuple[list[dict], Ba
     return raw, stats, None
 
 
-def _fetch_all_sources(preferences) -> list[str]:
+def _fetch_all_sources() -> list[str]:
     return ["headhunter"]
 
 
 def _source_key(source: str) -> str:
-    aliases = {}
-    return aliases.get(source.strip().lower(), source.strip().lower().replace("-", "_"))
+    return source.strip().lower().replace("-", "_")
 
 
 def _infer_title(text: str) -> str:

@@ -21,6 +21,8 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 ### Fixed
 
+- Removed unused citizenship and excluded-title settings, stale source search-count status, and an unused fetch-all helper argument.
+- Removed unused export and language helpers, the unused pandas dependency, and ignored configuration fields.
 - Required explicit raw-record source markers, migrated legacy HeadHunter and LinkedIn records at their persistence boundaries, and removed structural source fallback during normalization.
 - Added the `job-assistant` console entry point, replaced placeholder package metadata, and removed the unused root `main.py` placeholder.
 - Made `fetch-all` respect disabled email configuration and isolate sanitized IMAP, SSL, and network failures so the remaining pipeline can complete.

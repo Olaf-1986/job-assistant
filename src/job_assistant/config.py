@@ -78,9 +78,8 @@ class QueriesConfig(BaseModel):
     primary: list[str] = Field(min_length=1)
     primary_ru: list[str] = Field(default_factory=list)
     low_priority: list[str] = Field(default_factory=list)
-    excluded_target_titles: list[str] = Field(default_factory=list)
 
-    @field_validator("primary", "primary_ru", "low_priority", "excluded_target_titles")
+    @field_validator("primary", "primary_ru", "low_priority")
     @classmethod
     def no_empty_values(cls, values: list[str]) -> list[str]:
         cleaned = [value.strip() for value in values if value and value.strip()]
@@ -91,13 +90,10 @@ class QueriesConfig(BaseModel):
 
 class LanguagesConfig(BaseModel):
     accepted: list[str] = Field(min_length=1)
-    international_english_bonus: int
     russian_penalty: int
 
 
 class LocationConfig(BaseModel):
-    remote_allowed: bool
-    timezone_filter_enabled: bool
     onsite_hybrid_allowed_cities: list[str] = Field(min_length=1)
     remote_keywords: list[str] = Field(default_factory=list)
     onsite_keywords: list[str] = Field(default_factory=list)
@@ -109,7 +105,6 @@ class BlockersConfig(BaseModel):
     developer_component_keywords: list[str] = Field(default_factory=list)
     sales_titles: list[str] = Field(default_factory=list)
     support_titles: list[str] = Field(default_factory=list)
-    citizenship_patterns: list[str] = Field(default_factory=list)
     non_blocking_work_auth_countries: list[str] = Field(default_factory=list)
     work_auth_patterns: list[str] = Field(default_factory=list)
 
@@ -144,7 +139,6 @@ class OutputsConfig(BaseModel):
     combined_shortlist_file: str = "combined_shortlist.md"
     source_status_file: str = "source_status.json"
     manual_imports_file: str = "manual_imports.json"
-    source_quality_file: str = "source_quality.json"
     email_candidates_file: str = "email_candidates.json"
     linkedin_email_queue_file: str = "linkedin_email_queue.md"
     email_state_file: str = "email_state.json"

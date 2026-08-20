@@ -23,22 +23,6 @@ def detect_language(text: str) -> str:
     return "en"
 
 
-def is_international_english(text: str, detected_language: str | None) -> bool:
-    if detected_language != "en":
-        return False
-    lowered = text.lower()
-    signals = [
-        "international",
-        "global",
-        "distributed team",
-        "english-speaking",
-        "english working environment",
-        "remote team",
-        "emea",
-    ]
-    return any(signal in lowered for signal in signals)
-
-
 def has_explicit_german_requirement(text: str) -> bool:
     lowered = text.lower()
     patterns = [
