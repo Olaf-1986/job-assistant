@@ -4,8 +4,15 @@ from email import message_from_bytes
 from email.policy import default
 from pathlib import Path
 
+import pytest
+
 from job_assistant.config import load_preferences
-from job_assistant.email_ingestion import extract_candidates_from_message, sync_email_alerts, vacancy_url
+from job_assistant.email_ingestion import (
+    extract_candidates_from_message,
+    load_email_settings,
+    sync_email_alerts,
+    vacancy_url,
+)
 from job_assistant.models import BatchStats
 from job_assistant.persistence import rebuild_from_authoritative_sources
 from job_assistant.utils import read_json
@@ -227,3 +234,68 @@ def test_gmail_fixture_linkedin_alert_is_snippet_not_full_description():
     assert linkedin
     assert all(item["external_id"] and item["canonical_url"] and item["title"] for item in linkedin)
     assert all(item["status"] == "pending" for item in linkedin)
+
+
+def test_email_settings_prefer_process_environment_over_selected_dotenv(monkeypatch, tmp_path):
+    env_path = tmp_path / "email.env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "EMAIL_IMAP_HOST=dotenv.example.test",
+                "EMAIL_IMAP_PORT=1993",
+                "EMAIL_IMAP_USER=dotenv-user",
+                "EMAIL_IMAP_APP_PASSWORD=dotenv-password",
+                "EMAIL_IMAP_MAILBOX=DotenvMailbox",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EMAIL_IMAP_HOST", "process.example.test")
+    monkeypatch.setenv("EMAIL_IMAP_PORT", "2993")
+    monkeypatch.setenv("EMAIL_IMAP_USER", "process-user")
+    monkeypatch.setenv("EMAIL_IMAP_APP_PASSWORD", "process-password")
+    monkeypatch.setenv("EMAIL_IMAP_MAILBOX", "ProcessMailbox")
+
+    settings = load_email_settings(env_path)
+
+    assert settings == {
+        "host": "process.example.test",
+        "port": 2993,
+        "user": "process-user",
+        "password": "process-password",
+        "mailbox": "ProcessMailbox",
+    }
+
+
+def test_email_settings_use_selected_dotenv_and_require_both_credentials(monkeypatch, tmp_path):
+    for name in (
+        "EMAIL_IMAP_HOST",
+        "EMAIL_IMAP_PORT",
+        "EMAIL_IMAP_USER",
+        "EMAIL_IMAP_APP_PASSWORD",
+        "EMAIL_IMAP_MAILBOX",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    env_path = tmp_path / "email.env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "EMAIL_IMAP_USER=dotenv-user",
+                "EMAIL_IMAP_APP_PASSWORD=dotenv-password",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_email_settings(env_path)
+
+    assert settings == {
+        "host": "imap.gmail.com",
+        "port": 993,
+        "user": "dotenv-user",
+        "password": "dotenv-password",
+        "mailbox": "JobAlerts",
+    }
+    env_path.write_text("EMAIL_IMAP_USER=dotenv-user\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="email_credentials_missing"):
+        load_email_settings(env_path)

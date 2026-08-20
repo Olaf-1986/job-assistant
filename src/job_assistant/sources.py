@@ -41,7 +41,7 @@ def load_statuses(preferences: Preferences) -> dict[str, SourceStatus]:
         required = getattr(config, "requires_env", []) or []
         credential_status = (
             "present"
-            if required and all(os.getenv(name) for name in required)
+            if required and all(os.getenv(name, "").strip() for name in required)
             else "missing"
             if required
             else "not_required"

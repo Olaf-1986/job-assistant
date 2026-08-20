@@ -66,6 +66,9 @@ sources:
   email:
     enabled: true
     mode: imap_read_only
+    requires_env:
+      - EMAIL_IMAP_USER
+      - EMAIL_IMAP_APP_PASSWORD
   linkedin:
     enabled: true
     mode: manual_or_explicit_playwright

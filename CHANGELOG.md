@@ -25,6 +25,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Protected exported CSV cell values from spreadsheet formula injection while preserving the existing CSV schema and outputs.
 - Sanitized error details before console display and persistence, including HeadHunter response-body handling.
 - Hardened the local capture server with one-time in-memory token loading and strict localhost Host validation.
+- Aligned email credential precedence and source status with the required IMAP username and app password.
 
 ### Removed
 

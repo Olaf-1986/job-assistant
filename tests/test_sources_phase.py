@@ -9,7 +9,7 @@ from job_assistant.deduplicate import deduplicate_vacancies
 from job_assistant.filters import apply_filters
 from job_assistant.normalize import normalize_records
 from job_assistant.scoring import score_vacancies
-from job_assistant.sources import SourceStatus, already_succeeded_today
+from job_assistant.sources import SourceStatus, already_succeeded_today, load_statuses
 
 runner = CliRunner()
 
@@ -22,9 +22,27 @@ def test_default_sources_include_headhunter_and_explicit_linkedin_processing():
     assert preferences.sources.lever.enabled is False
     assert preferences.sources.email.enabled is True
     assert preferences.sources.email.mode == "imap_read_only"
+    assert preferences.sources.email.requires_env == ["EMAIL_IMAP_USER", "EMAIL_IMAP_APP_PASSWORD"]
     assert preferences.sources.linkedin.enabled is True
     assert preferences.sources.linkedin.mode == "manual_or_explicit_playwright"
     assert preferences.sources.linkedin.manual_run_only is True
+
+
+def test_email_credential_status_requires_both_nonempty_credentials(monkeypatch, tmp_path):
+    preferences = load_preferences()
+    preferences = preferences.model_copy(
+        update={"outputs": preferences.outputs.model_copy(update={"directory": str(tmp_path / "output")})}
+    )
+    monkeypatch.delenv("EMAIL_IMAP_USER", raising=False)
+    monkeypatch.delenv("EMAIL_IMAP_APP_PASSWORD", raising=False)
+    assert load_statuses(preferences)["email"].credential_status == "missing"
+
+    monkeypatch.setenv("EMAIL_IMAP_USER", "synthetic-user")
+    monkeypatch.setenv("EMAIL_IMAP_APP_PASSWORD", "   ")
+    assert load_statuses(preferences)["email"].credential_status == "missing"
+
+    monkeypatch.setenv("EMAIL_IMAP_APP_PASSWORD", "synthetic-password")
+    assert load_statuses(preferences)["email"].credential_status == "present"
 
 
 def test_jooble_incomplete_description_normalizes_for_manual_review():

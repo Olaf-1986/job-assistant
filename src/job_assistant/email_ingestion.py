@@ -145,8 +145,8 @@ def load_email_settings(env_path: Path | None = None) -> dict[str, Any]:
     values = dotenv_values(env_path or ROOT / ".env")
     host = str(os.getenv("EMAIL_IMAP_HOST") or values.get("EMAIL_IMAP_HOST") or "imap.gmail.com")
     port = int(str(os.getenv("EMAIL_IMAP_PORT") or values.get("EMAIL_IMAP_PORT") or "993"))
-    user = str(values.get("EMAIL_IMAP_USER") or "").strip()
-    password = str(values.get("EMAIL_IMAP_APP_PASSWORD") or "").strip()
+    user = str(os.getenv("EMAIL_IMAP_USER") or values.get("EMAIL_IMAP_USER") or "").strip()
+    password = str(os.getenv("EMAIL_IMAP_APP_PASSWORD") or values.get("EMAIL_IMAP_APP_PASSWORD") or "").strip()
     mailbox = (
         str(os.getenv("EMAIL_IMAP_MAILBOX") or values.get("EMAIL_IMAP_MAILBOX") or "JobAlerts").strip() or "JobAlerts"
     )
