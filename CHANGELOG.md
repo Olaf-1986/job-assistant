@@ -29,6 +29,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Aligned email credential precedence and source status with the required IMAP username and app password.
 - Sanitized shortlist Markdown titles to prevent injected headings, links, formatting, HTML, and multiline structure.
 - Hardened JSON persistence with atomic writes, corrupt-file recovery, and serialized capture updates.
+- Refined LinkedIn page classification to ignore ordinary vacancy footer sign-in text while preserving login/authwall detection.
 
 ### Removed
 

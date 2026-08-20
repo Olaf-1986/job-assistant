@@ -9,6 +9,7 @@ from job_assistant.linkedin_fetch import (
     LinkedInFetchError,
     LinkedInStopRun,
     _expand_show_more,
+    classify_linkedin_page,
     extract_linkedin_vacancy,
     fetch_pending_linkedin,
 )
@@ -72,6 +73,23 @@ def test_page_state_detection_login_captcha_and_unavailable():
         extract_linkedin_vacancy(html("linkedin_captcha.html"), "https://www.linkedin.com/jobs/view/333")
     with pytest.raises(LinkedInFetchError, match="expired"):
         extract_linkedin_vacancy(html("linkedin_unavailable.html"), "https://www.linkedin.com/jobs/view/444")
+
+
+def test_footer_sign_in_does_not_classify_normal_vacancy_as_login():
+    vacancy_html = html("linkedin_job_jsonld.html").replace(
+        "</body>", "<footer>Sign in · LinkedIn · Join now</footer></body>"
+    )
+
+    vacancy = extract_linkedin_vacancy(vacancy_html, "https://www.linkedin.com/jobs/view/555")
+
+    assert vacancy.job_id == "555"
+
+
+def test_login_classification_requires_auth_path_or_unambiguous_marker():
+    assert classify_linkedin_page("https://www.linkedin.com/jobs/view/555", "Sign in · LinkedIn") is None
+    assert classify_linkedin_page("https://www.linkedin.com/authwall?trk=guest", "Please sign in") == "login_required"
+    assert classify_linkedin_page("https://www.linkedin.com/uas/login", "Welcome") == "login_required"
+    assert classify_linkedin_page("https://www.linkedin.com/jobs/view/555", "Sign in to LinkedIn") == "login_required"
 
 
 def test_show_more_click_is_attempted():

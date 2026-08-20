@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -25,6 +26,13 @@ from .utils import ROOT, normalize_space
 PROFILE_DIR = ROOT / "data" / "browser_profiles" / "linkedin"
 MIN_DESCRIPTION_LENGTH = 200
 STOP_REASONS = {"login_required", "captcha", "account_restricted"}
+_LOGIN_PATHS = {
+    "/authwall",
+    "/checkpoint",
+    "/checkpoint/challenge",
+    "/login",
+    "/uas/login",
+}
 
 
 class LinkedInFetchError(RuntimeError):
@@ -115,11 +123,13 @@ def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "Li
 
 
 def classify_linkedin_page(url: str, text: str) -> str | None:
-    lowered = f"{url}\n{text}".lower()
-    if "/login" in lowered or "sign in" in lowered and "linkedin" in lowered or "join linkedin" in lowered:
-        return "login_required"
-    if "captcha" in lowered or "security verification" in lowered or "quick security check" in lowered:
+    lowered_text = text.lower()
+    lowered_url_path = urlsplit(url).path.rstrip("/").lower() or "/"
+    if "captcha" in lowered_text or "security verification" in lowered_text or "quick security check" in lowered_text:
         return "captcha"
+    if lowered_url_path in _LOGIN_PATHS or re.search(r"\b(?:sign|log) in to linkedin\b", lowered_text):
+        return "login_required"
+    lowered = f"{lowered_url_path}\n{lowered_text}"
     if "account restricted" in lowered or "temporarily restricted" in lowered:
         return "account_restricted"
     if (
