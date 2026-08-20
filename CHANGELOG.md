@@ -21,6 +21,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 ### Fixed
 
+- Added the `job-assistant` console entry point, replaced placeholder package metadata, and removed the unused root `main.py` placeholder.
 - Made `fetch-all` respect disabled email configuration and isolate sanitized IMAP, SSL, and network failures so the remaining pipeline can complete.
 - Corrected LinkedIn queue counts to include every pending-compatible status while retaining compatibility with persisted `manual_capture_required` entries.
 - Updated the capture endpoint test harness to use an in-process ASGI transport compatible with the current dependency stack.
