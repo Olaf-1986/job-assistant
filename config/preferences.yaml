@@ -191,6 +191,9 @@ role_relevance:
     - system analyst
     - technical business analyst
     - requirements analyst
+    - business requirements analyst
+    - functional analyst
+    - business process analyst
     - product analyst
     - solutions analyst
     - solution analyst
@@ -199,6 +202,21 @@ role_relevance:
     - jira
     - confluence
     - atlassian
+    - бизнес-аналитик
+    - бизнес аналитик
+    - системный аналитик
+    - бизнес-системный аналитик
+    - бизнес системный аналитик
+    - системный бизнес-аналитик
+    - аналитик требований
+    - аналитик по требованиям
+    - функциональный аналитик
+    - аналитик бизнес-процессов
+    - аналитик бизнес процессов
+    - аналитик информационных систем
+    - аналитик ит-систем
+    - интеграционный аналитик
+    - аналитик интеграций
   irrelevant_title_keywords:
     - software engineer
     - software developer

@@ -85,6 +85,34 @@ def test_headhunter_ba_sa_records_pass_role_relevance_and_score():
     assert all(vacancy.score > 0 for vacancy in vacancies)
 
 
+def test_headhunter_remote_russian_systems_analyst_passes_title_and_location_filters():
+    preferences = load_preferences()
+    record = {
+        **HEADHUNTER_RESPONSE["items"][0],
+        "id": "russian-systems-analyst",
+        "name": "Системный аналитик",
+        "schedule": {"id": "fullDay", "name": "Полный день"},
+        "work_format": ["REMOTE"],
+        "snippet": {
+            "requirement": "Анализ требований, BPMN и интеграции.",
+            "responsibility": "Проектирование информационных систем.",
+        },
+    }
+
+    vacancy = apply_filters(
+        normalize_records(
+            [{"query": "Системный аналитик", "sample": "remote", "record": {"__source": "headhunter", **record}}],
+            preferences,
+        ),
+        preferences,
+    )[0]
+
+    assert vacancy.work_mode == "remote"
+    assert vacancy.blocker is False
+    assert "title is neither a configured target nor a reviewable adjacent role" not in vacancy.blocker_reasons
+    assert "onsite or hybrid outside Tbilisi" not in vacancy.blocker_reasons
+
+
 def test_headhunter_scoring_uses_keyword_near_end_of_full_description():
     preferences = load_preferences()
     filler = " ".join(["ordinary delivery context"] * 80)
