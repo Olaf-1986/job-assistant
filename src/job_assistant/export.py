@@ -122,7 +122,7 @@ def _csv_value(value: Any) -> str:
 
 
 def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
-    lines = ["# Job Shortlist", "", f"Source: {_display_source_name(vacancies)}", ""]
+    lines = ["# Job Shortlist", ""]
     for rank, vacancy in enumerate(vacancies, start=1):
         lines.extend(
             [
@@ -135,17 +135,22 @@ def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
                 f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
                 f"- Salary: {_salary(vacancy)}",
                 f"- Publication date: {vacancy.publication_date.isoformat() if vacancy.publication_date else 'n/a'}",
-                f"- Description completeness: {vacancy.description_completeness}",
                 f"- Matched signals: {', '.join(vacancy.matched_signals) or 'n/a'}",
                 f"- Score breakdown: {'; '.join(vacancy.score_breakdown) or 'n/a'}",
-                f"- Warnings: {'; '.join(vacancy.warnings) or 'none'}",
-                f"- Vacancy URL: {vacancy.source_url or vacancy.application_url or 'n/a'}",
-                f"- Application URL: {vacancy.apply_url or vacancy.application_url or 'n/a'}",
-                f"- Source: {_display_source_name([vacancy])}",
-                "",
             ]
         )
+        warnings = _shortlist_warnings(vacancy)
+        if warnings:
+            lines.append(f"- Warnings: {'; '.join(warnings)}")
+        lines.extend([f"- Vacancy URL: {vacancy.source_url or vacancy.application_url or 'n/a'}", ""])
     return "\n".join(lines)
+
+
+def _shortlist_warnings(vacancy: NormalizedVacancy) -> list[str]:
+    warnings = list(vacancy.warnings)
+    if vacancy.description_completeness != "complete":
+        warnings.append("incomplete description requires manual review")
+    return list(dict.fromkeys(warnings))
 
 
 def _markdown_title(title: str) -> str:

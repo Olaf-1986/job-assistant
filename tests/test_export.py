@@ -5,7 +5,13 @@ import csv
 import pytest
 
 from job_assistant.config import load_preferences
-from job_assistant.export import _csv_value, _markdown_title, _shortlist_markdown, export_all, sorted_shortlist
+from job_assistant.export import (
+    _csv_value,
+    _markdown_title,
+    _shortlist_markdown,
+    export_all,
+    sorted_shortlist,
+)
 from job_assistant.filters import apply_filters
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
@@ -102,3 +108,39 @@ def test_markdown_title_keeps_ordinary_title_visually_unchanged():
             )[0]
         ]
     )
+
+
+@pytest.mark.parametrize("source", ["headhunter", "linkedin"])
+def test_shortlist_markdown_omits_optional_fields_for_complete_vacancy(source: str):
+    vacancy = normalize_records([{"query": "feed", "record": BUSINESS_ANALYST}], load_preferences())[0]
+    vacancy.source = source
+
+    markdown = _shortlist_markdown([vacancy])
+
+    assert "- Vacancy URL:" in markdown
+    assert "Application URL" not in markdown
+    assert "Description completeness" not in markdown
+    assert "\nSource:" not in markdown
+    assert "- Source:" not in markdown
+    assert "Warnings:" not in markdown
+
+
+def test_shortlist_markdown_adds_incomplete_description_warning_once():
+    vacancy = normalize_records([{"query": "feed", "record": BUSINESS_ANALYST}], load_preferences())[0]
+    warning = "incomplete description requires manual review"
+    vacancy.description_completeness = "partial"
+    vacancy.warnings.append(warning)
+
+    markdown = _shortlist_markdown([vacancy])
+
+    assert markdown.count(warning) == 1
+
+
+def test_shortlist_markdown_preserves_other_warnings():
+    vacancy = normalize_records([{"query": "feed", "record": BUSINESS_ANALYST}], load_preferences())[0]
+    vacancy.description_completeness = "partial"
+    vacancy.warnings.append("review salary currency")
+
+    markdown = _shortlist_markdown([vacancy])
+
+    assert "Warnings: review salary currency; incomplete description requires manual review" in markdown

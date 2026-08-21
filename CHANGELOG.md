@@ -22,6 +22,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 
 ### Fixed
 
+- Simplified shortlist Markdown while retaining Vacancy URLs and surfacing incomplete descriptions as deduplicated manual-review warnings.
 - Recognized common English and Russian business- and systems-analyst title variants in HeadHunter prefiltering and role relevance.
 - Removed unused citizenship and excluded-title settings, stale source search-count status, and an unused fetch-all helper argument.
 - Removed unused export and language helpers, the unused pandas dependency, and ignored configuration fields.
