@@ -38,6 +38,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Sanitized shortlist Markdown titles to prevent injected headings, links, formatting, HTML, and multiline structure.
 - Hardened JSON persistence with atomic writes, corrupt-file recovery, and serialized capture updates.
 - Refined LinkedIn page classification to ignore ordinary vacancy footer sign-in text while preserving login/authwall detection.
+- Updated LinkedIn Playwright extraction to wait for substantive main content, use the queued title with document-title fallback, and derive descriptions from the vacancy content rather than brittle page selectors.
 
 ### Removed
 

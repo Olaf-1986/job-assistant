@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 from dataclasses import dataclass
@@ -25,7 +24,23 @@ from .utils import ROOT, normalize_space
 
 PROFILE_DIR = ROOT / "data" / "browser_profiles" / "linkedin"
 MIN_DESCRIPTION_LENGTH = 200
+MIN_READY_MAIN_TEXT_LENGTH = 500
+FALLBACK_READY_MAIN_TEXT_LENGTH = 2_500
 STOP_REASONS = {"login_required", "captcha", "account_restricted"}
+VACANCY_SECTION_MARKERS = (
+    "requirements",
+    "must-have",
+    "must have",
+    "qualifications",
+    "prerequisites",
+    "требования",
+)
+IRRELEVANT_SECTION_MARKERS = (
+    "people also viewed",
+    "jobs you may like",
+    "recommended jobs",
+    "similar jobs",
+)
 _LOGIN_PATHS = {
     "/authwall",
     "/checkpoint",
@@ -54,7 +69,21 @@ class LinkedInVacancy:
     document_title: str
 
 
-def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "LinkedIn") -> LinkedInVacancy:
+@dataclass
+class LinkedInPageContent:
+    page_url: str
+    body_text: str
+    main_text: str
+    document_title: str
+
+
+def extract_linkedin_vacancy(
+    html: str,
+    page_url: str,
+    document_title: str = "LinkedIn",
+    candidate_title: str | None = None,
+    main_text: str | None = None,
+) -> LinkedInVacancy:
     soup = BeautifulSoup(html, "html.parser")
     page_text = normalize_space(soup.get_text(" "))
     reason = classify_linkedin_page(page_url, page_text)
@@ -63,50 +92,16 @@ def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "Li
     if reason == "expired":
         raise LinkedInFetchError("expired")
 
-    job_id = linkedin_job_id(page_url) or _job_id_from_html(soup)
+    job_id = linkedin_job_id(page_url)
     if not job_id:
         raise LinkedInFetchError("extraction_failed: missing LinkedIn job id")
-    structured = _jobposting_from_jsonld(soup)
-    title = _structured_text(structured.get("title")) if structured else None
-    company = _organization_name(structured.get("hiringOrganization")) if structured else None
-    location = _location_text(structured.get("jobLocation")) if structured else None
-    description = _description_from_structured(structured) if structured else None
 
-    title = title or _first_text(
-        soup,
-        ["h1", "[data-test-job-title]", ".job-details-jobs-unified-top-card__job-title", ".top-card-layout__title"],
-    )
-    company = company or _first_text(
-        soup,
-        [
-            "[data-test-job-company-name]",
-            ".job-details-jobs-unified-top-card__company-name",
-            ".topcard__org-name-link",
-            ".top-card-layout__card .topcard__flavor",
-        ],
-    )
-    location = location or _first_text(
-        soup,
-        [
-            "[data-test-job-location]",
-            ".job-details-jobs-unified-top-card__primary-description-container",
-            ".topcard__flavor--bullet",
-            ".job-search-card__location",
-        ],
-    )
-    description = description or _first_text(
-        soup,
-        [
-            "[data-test-job-description]",
-            ".jobs-description__content",
-            ".jobs-box__html-content",
-            "#job-details",
-            ".description__text",
-        ],
-    )
-
-    title = normalize_space(title or "")
-    description = normalize_space(description or "")
+    main_text = main_text if main_text is not None else _main_text_from_html(soup)
+    title, company = _document_title_parts(document_title)
+    candidate_title = normalize_space(candidate_title or "")
+    if candidate_title and _contains_normalized(main_text, candidate_title):
+        title = candidate_title
+    description = _description_from_main_text(main_text)
     if not title:
         raise LinkedInFetchError("extraction_failed: missing title")
     if len(description) < MIN_DESCRIPTION_LENGTH:
@@ -115,11 +110,67 @@ def extract_linkedin_vacancy(html: str, page_url: str, document_title: str = "Li
         job_id=job_id,
         canonical_url=canonical_linkedin_url(job_id),
         title=title,
-        company=normalize_space(company) if company else None,
-        location=normalize_space(location) if location else None,
+        company=company,
+        location=None,
         description=description,
         document_title=document_title,
     )
+
+
+def _contains_normalized(text: str, phrase: str) -> bool:
+    return normalize_space(phrase).casefold() in normalize_space(text).casefold()
+
+
+def _document_title_parts(document_title: str) -> tuple[str, str | None]:
+    parts = [normalize_space(part) for part in document_title.split("|") if normalize_space(part)]
+    parts = [part for part in parts if part.casefold() != "linkedin"]
+    title = parts[0] if parts else ""
+    company = parts[1] if len(parts) > 1 else None
+    return title, company
+
+
+def _main_text_from_html(soup: BeautifulSoup) -> str:
+    main = soup.find("main")
+    if main is None:
+        return ""
+    for element in main.select(
+        "nav, footer, aside, form, button, script, style, [role='navigation'], [role='complementary']"
+    ):
+        element.decompose()
+    return main.get_text("\n")
+
+
+def _description_from_main_text(main_text: str) -> str:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for raw_line in main_text.splitlines():
+        line = normalize_space(raw_line)
+        lowered = line.casefold()
+        if not line or lowered in seen:
+            continue
+        if any(marker in lowered for marker in IRRELEVANT_SECTION_MARKERS):
+            break
+        if lowered in {"skip to search", "skip to content", "sign in", "join now", "show more", "see more"}:
+            continue
+        seen.add(lowered)
+        lines.append(line)
+    start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if any(marker in line.casefold() for marker in VACANCY_SECTION_MARKERS)
+        ),
+        0,
+    )
+    return "\n".join(lines[start:])
+
+
+def _main_text_is_ready(main_text: str) -> bool:
+    text = normalize_space(main_text)
+    if len(text) < MIN_READY_MAIN_TEXT_LENGTH:
+        return False
+    lowered = text.casefold()
+    return any(marker in lowered for marker in VACANCY_SECTION_MARKERS) or len(text) >= FALLBACK_READY_MAIN_TEXT_LENGTH
 
 
 def classify_linkedin_page(url: str, text: str) -> str | None:
@@ -146,7 +197,7 @@ def fetch_pending_linkedin(
     limit: int = 5,
     dry_run: bool = False,
     pause_seconds: float = 1.0,
-    page_fetcher: Callable[[str], tuple[str, str]] | None = None,
+    page_fetcher: Callable[[str], LinkedInPageContent | tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     if limit < 1:
         raise LinkedInFetchError("limit must be at least 1")
@@ -190,9 +241,19 @@ def fetch_pending_linkedin(
             url = str(item.get("canonical_url") or "")
             processed += 1
             try:
-                html, document_title = page_fetcher(url)
+                result = page_fetcher(url)
                 stats["opened"] += 1
-                vacancy = extract_linkedin_vacancy(html, url, document_title=document_title)
+                if isinstance(result, LinkedInPageContent):
+                    vacancy = extract_linkedin_vacancy(
+                        "",
+                        result.page_url,
+                        document_title=result.document_title,
+                        candidate_title=title,
+                        main_text=result.main_text,
+                    )
+                else:
+                    html, document_title = result
+                    vacancy = extract_linkedin_vacancy(html, url, document_title=document_title, candidate_title=title)
                 if dry_run:
                     stats["imported"] += 1
                     continue
@@ -248,8 +309,7 @@ def _import_vacancy(preferences: Preferences, vacancy: LinkedInVacancy) -> dict[
     return process_manual_capture(preferences, payload, auto_open_next=False)
 
 
-def _playwright_page_fetcher(headless: bool = False) -> Callable[[str], tuple[str, str]]:
-    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+def _playwright_page_fetcher(headless: bool = False) -> Callable[[str], LinkedInPageContent]:
     from playwright.sync_api import sync_playwright
 
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,20 +318,59 @@ def _playwright_page_fetcher(headless: bool = False) -> Callable[[str], tuple[st
     page = context.pages[0] if context.pages else context.new_page()
 
     class Fetcher:
-        def __call__(self, url: str) -> tuple[str, str]:
+        def __call__(self, url: str) -> LinkedInPageContent:
             page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            _wait_for_linkedin_page_or_stop(page)
             _expand_show_more(page)
-            try:
-                page.wait_for_timeout(500)
-            except PlaywrightTimeoutError:
-                pass
-            return page.content(), page.title()
+            _wait_for_linkedin_page_or_stop(page)
+            body_text = page.locator("body").inner_text(timeout=5_000)
+            main_text = page.locator("main").first.inner_text(timeout=5_000)
+            reason = classify_linkedin_page(page.url, body_text)
+            if reason in STOP_REASONS:
+                raise LinkedInStopRun(reason)
+            if reason == "expired":
+                raise LinkedInFetchError("expired")
+            return LinkedInPageContent(page.url, body_text, main_text, page.title())
 
         def close(self) -> None:
             context.close()
             playwright.stop()
 
     return Fetcher()
+
+
+def _wait_for_linkedin_page(page: Any) -> None:
+    page.wait_for_function(
+        """({ minimumLength, fallbackLength, markers }) => {
+            const main = document.querySelector('main');
+            if (!main) return false;
+            const text = (main.innerText || '').trim();
+            if (text.length < minimumLength) return false;
+            const lowered = text.toLowerCase();
+            return markers.some(marker => lowered.includes(marker)) || text.length >= fallbackLength;
+        }""",
+        arg={
+            "minimumLength": MIN_READY_MAIN_TEXT_LENGTH,
+            "fallbackLength": FALLBACK_READY_MAIN_TEXT_LENGTH,
+            "markers": VACANCY_SECTION_MARKERS,
+        },
+        timeout=15_000,
+    )
+
+
+def _wait_for_linkedin_page_or_stop(page: Any) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        _wait_for_linkedin_page(page)
+    except PlaywrightTimeoutError as exc:
+        body_text = page.locator("body").inner_text(timeout=5_000)
+        reason = classify_linkedin_page(page.url, body_text)
+        if reason in STOP_REASONS:
+            raise LinkedInStopRun(reason) from exc
+        if reason == "expired":
+            raise LinkedInFetchError("expired") from exc
+        raise LinkedInFetchError("extraction_failed: page content did not become ready") from exc
 
 
 def _expand_show_more(page: Any) -> None:
@@ -284,88 +383,3 @@ def _expand_show_more(page: Any) -> None:
                 return
         except Exception:
             continue
-
-
-def _jobposting_from_jsonld(soup: BeautifulSoup) -> dict[str, Any] | None:
-    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
-        raw = script.string or script.get_text(" ")
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        for item in _jsonld_items(data):
-            item_type = item.get("@type")
-            types = item_type if isinstance(item_type, list) else [item_type]
-            if any(str(value).lower() == "jobposting" for value in types):
-                return item
-    return None
-
-
-def _jsonld_items(data: Any) -> list[dict[str, Any]]:
-    if isinstance(data, dict):
-        items = [data]
-        graph = data.get("@graph")
-        if isinstance(graph, list):
-            items.extend(item for item in graph if isinstance(item, dict))
-        return items
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
-    return []
-
-
-def _description_from_structured(data: dict[str, Any] | None) -> str | None:
-    if not data:
-        return None
-    value = data.get("description")
-    if not isinstance(value, str):
-        return None
-    return BeautifulSoup(value, "html.parser").get_text(" ")
-
-
-def _structured_text(value: Any) -> str | None:
-    return value if isinstance(value, str) else None
-
-
-def _organization_name(value: Any) -> str | None:
-    if isinstance(value, dict):
-        name = value.get("name")
-        return name if isinstance(name, str) else None
-    return value if isinstance(value, str) else None
-
-
-def _location_text(value: Any) -> str | None:
-    locations = value if isinstance(value, list) else [value]
-    parts: list[str] = []
-    for location in locations:
-        if isinstance(location, str):
-            parts.append(location)
-        elif isinstance(location, dict):
-            address = location.get("address")
-            if isinstance(address, str):
-                parts.append(address)
-            elif isinstance(address, dict):
-                parts.extend(
-                    str(address.get(key))
-                    for key in ["addressLocality", "addressRegion", "addressCountry"]
-                    if address.get(key)
-                )
-    return ", ".join(parts) or None
-
-
-def _first_text(soup: BeautifulSoup, selectors: list[str]) -> str | None:
-    for selector in selectors:
-        element = soup.select_one(selector)
-        if element:
-            text = normalize_space(element.get_text(" "))
-            if text:
-                return text
-    return None
-
-
-def _job_id_from_html(soup: BeautifulSoup) -> str | None:
-    for value in [soup.find("link", rel="canonical"), soup.find("meta", property="og:url")]:
-        url = value.get("href") if value and value.name == "link" else value.get("content") if value else None
-        job_id = linkedin_job_id(str(url or ""))
-        if job_id:
-            return job_id
-    return None
