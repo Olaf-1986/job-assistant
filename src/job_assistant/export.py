@@ -96,6 +96,7 @@ def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
         "salary_currency",
         "publication_date",
         "description_completeness",
+        "requirements_text",
         "matched_signals",
         "blocker_reasons",
         "warnings",

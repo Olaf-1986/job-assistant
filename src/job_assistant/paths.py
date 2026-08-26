@@ -22,5 +22,6 @@ def output_paths(preferences: Preferences) -> dict[str, Path]:
         "manual_imports": directory / preferences.outputs.manual_imports_file,
         "email_candidates": directory / preferences.outputs.email_candidates_file,
         "linkedin_email_queue": directory / preferences.outputs.linkedin_email_queue_file,
+        "linkedin_rate_limit_state": directory / "linkedin_rate_limit_state.json",
         "email_state": directory / preferences.outputs.email_state_file,
     }

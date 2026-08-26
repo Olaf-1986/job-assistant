@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import Preferences, load_preferences
+from .linkedin_content import _description_from_main_text, _requirements_text_from_content
 from .linkedin_queue import (
     LinkedInQueueError,
     linkedin_job_id,
@@ -33,6 +34,7 @@ class ManualCapturePayload(BaseModel):
     page_url: str = Field(max_length=2048)
     document_title: str = Field(max_length=500)
     visible_text: str = Field(max_length=MAX_TEXT_LENGTH)
+    requirements_text: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
     selected_text: str = Field(default="", max_length=MAX_TEXT_LENGTH)
     hostname: str = Field(max_length=255)
     captured_at: str = Field(max_length=80)
@@ -90,7 +92,14 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
 def process_manual_capture(
     preferences: Preferences, payload: ManualCapturePayload, auto_open_next: bool = False
 ) -> dict[str, object]:
-    raw = {"query": "manual_capture", "record": {"__source": payload.source_label, **payload.model_dump()}}
+    record = payload.model_dump()
+    if payload.source_label == "linkedin":
+        cleaned_text = _description_from_main_text(str(record.get("visible_text") or ""))
+        if cleaned_text:
+            record["visible_text"] = cleaned_text
+        if not record.get("requirements_text"):
+            record["requirements_text"] = _requirements_text_from_content(str(record.get("visible_text") or ""), None)
+    raw = {"query": "manual_capture", "record": {"__source": payload.source_label, **record}}
     paths = output_paths(preferences)
     existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
     queue_result: dict[str, object] = {"matched": False, "job_id": None, "queue_id": None}

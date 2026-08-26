@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from job_assistant.config import load_preferences
 from job_assistant.filters import apply_filters, apply_hard_blockers, contains_phrase
-from job_assistant.language import detect_language, has_explicit_german_requirement
+from job_assistant.language import detect_language, detect_linkedin_content_language, has_explicit_german_requirement
 from job_assistant.location import detect_work_mode
 from job_assistant.normalize import normalize_record
 from tests.fixtures.vacancy_records import (
@@ -63,6 +63,13 @@ def test_german_language_and_requirement_detection():
     assert detect_language("Business Analyst in Tbilisi / Тбилиси. Requirements analysis and BPMN.") == "en"
     assert detect_language("Системный аналитик. Анализ требований, BPMN, документация и интеграции.") == "ru"
     assert has_explicit_german_requirement("Fließend Deutsch erforderlich") is True
+
+
+def test_linkedin_content_language_detection_is_conservative_for_non_english_latin_text():
+    assert detect_linkedin_content_language("Requirements analysis and stakeholder management") == "en"
+    assert detect_linkedin_content_language("Системный аналитик. Анализ требований и документация") == "ru"
+    assert detect_linkedin_content_language("Anforderungen, Erfahrung und Verantwortlichkeiten mit Deutsch") == "de"
+    assert detect_linkedin_content_language("Exigences, expérience, responsabilités et compétences") == "fr"
 
 
 def test_explicit_german_requirement_blocks():

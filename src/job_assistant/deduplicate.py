@@ -54,6 +54,18 @@ def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> Normal
     ):
         left.description_text = right.description_text
         left.description_html = right.description_html
+    if right.requirements_text and left.requirements_text:
+        requirements_differ = (
+            right.requirements_text not in left.requirements_text
+            and left.requirements_text not in right.requirements_text
+        )
+        if requirements_differ:
+            left.requirements_text = f"{left.requirements_text}\n\n{right.requirements_text}"
+        elif len(right.requirements_text) > len(left.requirements_text):
+            left.requirements_text = right.requirements_text
+    elif right.requirements_text:
+        left.requirements_text = right.requirements_text
+    left.categories = sorted(set([*left.categories, *right.categories]), key=str.casefold)
     left.source_queries = sorted(set(left.source_queries + right.source_queries))
     left.sources = sorted(set((left.sources or [left.source]) + (right.sources or [right.source])))
     left.source_urls = sorted(

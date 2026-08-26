@@ -9,6 +9,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 ### Added
 
 - Added repository-wide agent instructions for safe, consistent development and verification.
+- Added sanitized local LinkedIn rate-limit state with a two-minute start lock and no automatic retry or resume.
 - Added Ruff configuration and pinned GitHub Actions checks for formatting, linting, tests, and configuration validation.
 - Added a safe `.env.example` setup template for implemented workflows, with disabled legacy configuration clearly separated.
 - Added uvicorn as the runtime dependency for the local capture server.
@@ -16,6 +17,7 @@ The project has no tagged release yet; current changes remain under Unreleased.
 ### Changed
 
 - Consolidated active documentation into a user README, repository agent rules, and one current technical-state handoff; historical specifications remain explicitly archived.
+- Added randomized 5–20 second LinkedIn page pacing, blocked image/media/font requests, and included HeadHunter detail tags in role analysis and scoring.
 - Formalized LinkedIn queue processing through either user-triggered Chromium extension capture or explicitly invoked `linkedin-fetch` Playwright processing. `fetch --source linkedin` and `fetch-all` never start LinkedIn Playwright.
 - Refactored shared pipeline modules to be source-neutral while preserving normalization, deduplication, filtering, scoring, persistence, and export behavior.
 - Archived the historical first vertical-slice specification as non-authoritative reference material.
@@ -38,7 +40,8 @@ The project has no tagged release yet; current changes remain under Unreleased.
 - Sanitized shortlist Markdown titles to prevent injected headings, links, formatting, HTML, and multiline structure.
 - Hardened JSON persistence with atomic writes, corrupt-file recovery, and serialized capture updates.
 - Refined LinkedIn page classification to ignore ordinary vacancy footer sign-in text while preserving login/authwall detection.
-- Updated LinkedIn Playwright extraction to wait for substantive main content, use the queued title with document-title fallback, and derive descriptions from the vacancy content rather than brittle page selectors.
+- Updated LinkedIn Playwright extraction to wait for substantive main content, use the queued title with document-title fallback, and retain the full vacancy description, including requirements sections, without brittle page selectors.
+- Classified LinkedIn vacancies marked as no longer accepting applications as expired with an explicit blocker reason.
 
 ### Removed
 

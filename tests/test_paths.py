@@ -25,6 +25,7 @@ def test_output_paths_preserve_configured_keys_and_filenames(tmp_path):
         "manual_imports": outputs.manual_imports_file,
         "email_candidates": outputs.email_candidates_file,
         "linkedin_email_queue": outputs.linkedin_email_queue_file,
+        "linkedin_rate_limit_state": "linkedin_rate_limit_state.json",
         "email_state": outputs.email_state_file,
     }
     assert set(paths) == {"dir", *expected_filenames}

@@ -17,8 +17,10 @@ EXPLICIT_IRRELEVANT_TITLES = ("nurse", "physician", "doctor", "surgeon", "medica
 
 
 def apply_role_relevance(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
+    if _has_early_language_blocker(vacancy):
+        return vacancy
     title = vacancy.title or ""
-    text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text)
+    text = lower_text(vacancy.title, vacancy.excerpt, vacancy.description_text, " ".join(vacancy.categories))
     irrelevant_terms = [*preferences.role_relevance.irrelevant_title_keywords, *EXPLICIT_IRRELEVANT_TITLES]
     explicit_irrelevant = any(contains_phrase(title, term) for term in irrelevant_terms)
     explicit_irrelevant = explicit_irrelevant or any(
@@ -104,10 +106,14 @@ def _is_atlassian_admin(text: str) -> bool:
 
 
 def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
+    if _has_early_language_blocker(vacancy):
+        return vacancy
     text = lower_text(
         vacancy.title,
         vacancy.excerpt,
         vacancy.description_text,
+        vacancy.requirements_text,
+        " ".join(vacancy.categories),
         vacancy.company,
         " ".join(vacancy.location_restrictions),
     )
@@ -174,3 +180,7 @@ def _russia_only_work_location(text: str) -> bool:
 
 def apply_filters(vacancies: list[NormalizedVacancy], preferences: Preferences) -> list[NormalizedVacancy]:
     return [apply_hard_blockers(apply_role_relevance(vacancy, preferences), preferences) for vacancy in vacancies]
+
+
+def _has_early_language_blocker(vacancy: NormalizedVacancy) -> bool:
+    return any(reason.startswith("unsupported LinkedIn job-content language:") for reason in vacancy.blocker_reasons)

@@ -150,7 +150,13 @@ def test_capture_endpoint_authentication_payload_and_explicit_title_company(monk
         "document_title": "Fallback Browser Title",
         "vacancy_title": "LinkedIn System Analyst",
         "company": "LinkedIn Acme",
-        "visible_text": "Requirements analysis, BPMN and API integrations.",
+        "visible_text": (
+            "Skip to search\nLinkedIn System Analyst\n"
+            "Overview of the position and collaboration context.\n"
+            "Requirements\nRequirements analysis, BPMN and API integrations are required for this role.\n"
+            "This description contains enough substantive context for filtering and persistence.\n"
+            "People also viewed\nRecommended jobs must not be imported."
+        ),
         "selected_text": "",
         "hostname": "linkedin.test",
         "captured_at": "2026-01-01T00:00:00Z",
@@ -175,6 +181,8 @@ def test_capture_endpoint_authentication_payload_and_explicit_title_company(monk
     assert combined[0]["source"] == "linkedin"
     assert combined[0]["title"] == "LinkedIn System Analyst"
     assert combined[0]["company"] == "LinkedIn Acme"
+    assert combined[0]["requirements_text"].startswith("Requirements")
+    assert "Recommended jobs" not in combined[0]["description_text"]
     manual = read_json(preferences.outputs.output_dir() / preferences.outputs.manual_imports_file)
     assert manual[0]["record"]["__source"] == "linkedin"
 

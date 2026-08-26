@@ -7,12 +7,16 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from .config import Preferences
-from .language import detect_language
+from .language import detect_language, detect_linkedin_content_language
+from .linkedin_content import _description_from_main_text
+from .linkedin_policy import LINKEDIN_CLOSED_BLOCKER_REASON, has_linkedin_no_longer_accepting_marker
 from .location import detect_allowed_city, detect_work_mode
 from .models import NormalizedVacancy, RawRecord
 from .utils import canonical_url, normalize_space, slugify_text, utc_now
 
 LOGGER = logging.getLogger(__name__)
+LINKEDIN_SUPPORTED_LANGUAGES = {"en", "ru"}
+HEADHUNTER_TAG_FIELDS = ("key_skills", "skills", "professional_roles", "specializations", "tags")
 
 
 def html_to_text(html: str | None) -> str | None:
@@ -64,6 +68,20 @@ def as_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+def headhunter_analysis_tags(record: RawRecord) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for field in HEADHUNTER_TAG_FIELDS:
+        for value in as_list(record.get(field)):
+            tag = normalize_space(value)
+            key = tag.casefold()
+            if not tag or key in seen:
+                continue
+            seen.add(key)
+            tags.append(tag)
+    return tags
+
+
 def parse_optional_float(value: Any, field_name: str, warnings: list[str]) -> float | None:
     if value is None:
         return None
@@ -100,6 +118,7 @@ def _base_vacancy(
     **extra: Any,
 ) -> NormalizedVacancy:
     warnings: list[str] = list(extra.pop("warnings", []))
+    initial_blocker_reasons = sorted(set(extra.pop("initial_blocker_reasons", [])))
     text_for_detection = "\n".join([title, excerpt or "", description_text or "", location or ""])
     language = extra.pop("detected_language", None) or detect_language(text_for_detection)
     if language not in preferences.languages.accepted:
@@ -113,6 +132,12 @@ def _base_vacancy(
     )
     if completeness == "incomplete":
         warnings.append("incomplete description requires manual review")
+    configured_work_mode = extra.pop("work_mode", None)
+    work_mode = configured_work_mode
+    detected_city = None
+    if not initial_blocker_reasons:
+        work_mode = configured_work_mode or detect_work_mode(location_text, preferences)
+        detected_city = detect_allowed_city(location_text, preferences)
     return NormalizedVacancy(
         source=source,
         sources=[source],
@@ -130,6 +155,7 @@ def _base_vacancy(
         company_slug=slugify_text(company) if company else None,
         description_html=description_html,
         description_text=description_text,
+        requirements_text=extra.pop("requirements_text", None),
         excerpt=excerpt,
         location_restrictions=location_restrictions,
         timezone_restrictions=[],
@@ -141,8 +167,10 @@ def _base_vacancy(
         last_seen_at=fetched_at,
         fetched_at=fetched_at,
         detected_language=language,
-        work_mode=extra.pop("work_mode", None) or detect_work_mode(location_text, preferences),
-        detected_city=detect_allowed_city(location_text, preferences),
+        work_mode=work_mode,
+        detected_city=detected_city,
+        blocker=bool(initial_blocker_reasons),
+        blocker_reasons=initial_blocker_reasons,
         warnings=warnings,
         raw_application_urls=[canonical] if canonical else [],
         employment_type=extra.pop("employment_type", None),
@@ -205,6 +233,7 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
     schedule = _dict_name(record.get("schedule"))
     employment = _dict_name(record.get("employment"))
     experience = _dict_name(record.get("experience"))
+    analysis_tags = headhunter_analysis_tags(record)
     text_for_detection = "\n".join([title, description_text or "", area or "", schedule or ""])
     language = detect_language(text_for_detection)
     if language not in preferences.languages.accepted:
@@ -232,6 +261,9 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
             "area": area,
             "work_format": as_list(record.get("work_format")) or as_list(record.get("work_formats")),
             "key_skills": as_list(record.get("key_skills")),
+            "professional_roles": as_list(record.get("professional_roles")),
+            "specializations": as_list(record.get("specializations")),
+            "analysis_tags": analysis_tags,
             "response_letter_required": record.get("response_letter_required"),
         },
         title=normalize_space(title),
@@ -243,7 +275,7 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
         excerpt=description_text,
         employment_type=employment,
         seniority=experience,
-        categories=[],
+        categories=analysis_tags,
         location_restrictions=location_restrictions,
         timezone_restrictions=[],
         salary_min=parse_optional_float(salary.get("from"), "salary.from", warnings),
@@ -425,7 +457,19 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
     visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else record.get("text") or ""
     if not isinstance(visible, str):
         visible = ""
-    text = selected.strip() or visible.strip() or page_title
+    text = visible.strip() or selected.strip() or page_title
+    requirements_text = (
+        record.get("requirements_text")
+        if isinstance(record.get("requirements_text"), str) and record.get("requirements_text").strip()
+        else None
+    )
+    detected_language = detect_linkedin_content_language("\n".join([page_title, visible, requirements_text or ""]))
+    initial_blocker_reasons = []
+    if detected_language not in LINKEDIN_SUPPORTED_LANGUAGES:
+        initial_blocker_reasons.append(f"unsupported LinkedIn job-content language: {detected_language}")
+    blocker_text = "\n".join([page_title, _description_from_main_text(visible), selected, requirements_text or ""])
+    if has_linkedin_no_longer_accepting_marker(blocker_text):
+        initial_blocker_reasons.append(LINKEDIN_CLOSED_BLOCKER_REASON)
     page_url = record.get("page_url") if isinstance(record.get("page_url"), str) else record.get("url")
     return _base_vacancy(
         "linkedin",
@@ -440,6 +484,9 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
         page_url if isinstance(page_url, str) else None,
         preferences,
         imported_manually=True,
+        detected_language=detected_language,
+        initial_blocker_reasons=initial_blocker_reasons,
+        requirements_text=requirements_text,
         source_metadata={
             "hostname": record.get("hostname"),
             "captured_at": record.get("captured_at"),

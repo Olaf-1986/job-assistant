@@ -23,6 +23,7 @@ class NormalizedVacancy(BaseModel):
     company_slug: str | None = None
     description_html: str | None = None
     description_text: str | None = None
+    requirements_text: str | None = None
     excerpt: str | None = None
     employment_type: str | None = None
     seniority: str | None = None

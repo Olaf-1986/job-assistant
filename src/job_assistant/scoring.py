@@ -10,8 +10,10 @@ def score_vacancy(vacancy: NormalizedVacancy, preferences: Preferences) -> Norma
     score = 0
     breakdown: list[str] = []
     signals: list[str] = []
+    prioritized_description = vacancy.requirements_text or vacancy.description_text
+    contextual_excerpt = vacancy.excerpt if not vacancy.requirements_text else None
     text = lower_text(
-        vacancy.title, vacancy.excerpt, vacancy.description_text, vacancy.seniority, " ".join(vacancy.categories)
+        vacancy.title, contextual_excerpt, prioritized_description, vacancy.seniority, " ".join(vacancy.categories)
     )
     groups = preferences.scoring.keyword_groups
     jira_admin = _jira_admin_matches(text, groups["jira_admin"].keywords) if "jira_admin" in groups else []

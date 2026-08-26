@@ -328,12 +328,26 @@ def linkedin_fetch(
     login: bool = typer.Option(
         False, "--login", help="Open dedicated headed Chromium profile for manual LinkedIn login."
     ),
-    limit: int = typer.Option(5, "--limit", min=1, max=100, help="Maximum pending LinkedIn candidates to process."),
+    limit: int = typer.Option(5, "--limit", min=1, max=1000, help="Maximum pending LinkedIn candidates to process."),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Open and extract without writing queue/import/shortlist files."
     ),
-    pause_seconds: float = typer.Option(
-        1.0, "--pause-seconds", min=0.0, max=60.0, help="Pause between LinkedIn pages."
+    pause_seconds: float | None = typer.Option(
+        None,
+        "--pause-seconds",
+        min=5.0,
+        max=20.0,
+        help="Optional safe fixed delay; omit to choose a different 5-20 second delay after each LinkedIn page.",
+    ),
+    location_prefilter: bool = typer.Option(
+        False,
+        "--location-prefilter",
+        help="Reject only explicit non-Tbilisi onsite/hybrid locations from queue metadata before navigation.",
+    ),
+    prioritize: bool = typer.Option(
+        False,
+        "--prioritize",
+        help="Prioritize Tbilisi/remote and stronger titles while keeping EMEA ambiguous.",
     ),
 ) -> None:
     """Fetch queued LinkedIn vacancies through a dedicated Playwright browser profile."""
@@ -343,7 +357,14 @@ def linkedin_fetch(
         return
     preferences = _load_or_exit()
     try:
-        stats = fetch_pending_linkedin(preferences, limit=limit, dry_run=dry_run, pause_seconds=pause_seconds)
+        stats = fetch_pending_linkedin(
+            preferences,
+            limit=limit,
+            dry_run=dry_run,
+            pause_seconds=pause_seconds,
+            location_prefilter=location_prefilter,
+            prioritize=prioritize,
+        )
     except LinkedInStopRun as exc:
         console.print(f"[red]LinkedIn fetch stopped:[/red] {exc}")
         raise typer.Exit(1) from exc
@@ -352,7 +373,8 @@ def linkedin_fetch(
         raise typer.Exit(1) from exc
     console.print(
         f"LinkedIn fetch: opened={stats['opened']} imported={stats['imported']} "
-        f"skipped_title={stats['skipped_title']} expired={stats['expired']} "
+        f"title_prefilter_rejected={stats['title_prefilter_rejected']} "
+        f"location_prefilter_rejected={stats['location_prefilter_rejected']} expired={stats['expired']} "
         f"extraction_failed={stats['extraction_failed']} dry_run={dry_run}"
     )
 

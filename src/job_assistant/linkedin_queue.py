@@ -208,6 +208,8 @@ def update_queue_processed(preferences: Preferences, job_id: str, outcome: dict[
                 item["score"] = outcome.get("score")
             if outcome.get("blocker_reasons") is not None:
                 item["blocker_reasons"] = outcome.get("blocker_reasons")
+            if outcome.get("prefilter_reasons") is not None:
+                item["prefilter_reasons"] = outcome.get("prefilter_reasons")
             write_queue(preferences, candidates)
             return {"matched": True, "job_id": job_id, "queue_id": index, "candidate": item}
     return {"matched": False, "job_id": job_id, "queue_id": None}

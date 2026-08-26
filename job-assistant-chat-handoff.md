@@ -24,6 +24,8 @@ markers are errors; legacy persisted records receive their source only at their 
 ### HeadHunter
 
 - Searches use the official API, including configured search text, area, schedule, and work format.
+- Detail-response skills, professional roles, specializations, and available tag fields are retained as analysis tags
+  for role filtering and scoring without modifying the vacancy description.
 - Remote searches have no timezone restriction; onsite/hybrid searches are limited to Tbilisi.
 - Explicit Russia-only work-location restrictions are blocked; Russian citizenship alone is not.
 - HeadHunter email candidates are retrieved by vacancy ID through the official API.
@@ -45,6 +47,12 @@ markers are errors; legacy persisted records receive their source only at their 
 - Neither `fetch` nor `fetch-all` starts Playwright or opens a browser.
 - Playwright uses only its dedicated local persistent profile and manual login. Login, CAPTCHA, authwall, or account
   restriction pages stop processing and are never bypassed.
+- Normal Playwright processing blocks image, media, and font resources and selects a non-repeating consecutive delay
+  in the 5–20 second range after each opened vacancy.
+- An explicit LinkedIn rate-limit signal stops immediately without retry, stores sanitized local timing state, and
+  prevents another invocation from starting for two minutes. There is no automatic resume; processing continues only
+  through a later, separate command.
+- Vacancies explicitly marked as no longer accepting applications are expired and retain a blocker reason.
 - Extension and Playwright captures use explicit vacancy title/company data and enter the shared pipeline.
 
 ## Authoritative Data and Rebuilds

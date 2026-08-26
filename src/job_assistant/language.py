@@ -9,6 +9,28 @@ GERMAN_RE = re.compile(
     re.IGNORECASE,
 )
 LATIN_RE = re.compile(r"[A-Za-z]")
+LINKEDIN_ENGLISH_MARKERS = (
+    "requirements",
+    "responsibilities",
+    "experience",
+    "skills",
+    "required",
+    "analysis",
+    "role",
+    "position",
+    "with",
+    "and",
+    "the",
+    "your",
+)
+LINKEDIN_OTHER_LANGUAGE_MARKERS = {
+    "es": ("requisitos", "experiencia", "responsabilidades", "habilidades", "trabajo", "empresa"),
+    "fr": ("exigences", "expérience", "responsabilités", "compétences", "travail", "entreprise"),
+    "it": ("requisiti", "esperienza", "responsabilità", "competenze", "lavoro", "azienda"),
+    "pt": ("requisitos", "experiência", "responsabilidades", "competências", "trabalho", "empresa"),
+    "nl": ("vereisten", "ervaring", "verantwoordelijkheden", "vaardigheden", "werk", "bedrijf"),
+    "pl": ("wymagania", "doświadczenie", "obowiązki", "umiejętności", "praca", "firma"),
+}
 
 
 def detect_language(text: str) -> str:
@@ -21,6 +43,30 @@ def detect_language(text: str) -> str:
     if GERMAN_RE.search(text) and cyrillic_count == 0:
         return "de"
     return "en"
+
+
+def detect_linkedin_content_language(text: str) -> str:
+    """Return a conservative language label for LinkedIn job-content policy."""
+    detected = detect_language(text)
+    if detected in {"ru", "de"}:
+        return detected
+
+    lowered = text.casefold()
+    english_score = _language_marker_score(lowered, LINKEDIN_ENGLISH_MARKERS)
+    other_scores = {
+        language: _language_marker_score(lowered, markers)
+        for language, markers in LINKEDIN_OTHER_LANGUAGE_MARKERS.items()
+    }
+    other_language, other_score = max(other_scores.items(), key=lambda item: item[1], default=("unknown", 0))
+    if other_score >= 2 and other_score > english_score:
+        return other_language
+    if english_score >= 2 or (english_score >= 1 and "requirements" in lowered):
+        return "en"
+    return "unknown"
+
+
+def _language_marker_score(text: str, markers: tuple[str, ...]) -> int:
+    return sum(bool(re.search(rf"(?<![\w-]){re.escape(marker.casefold())}(?![\w-])", text)) for marker in markers)
 
 
 def has_explicit_german_requirement(text: str) -> bool:
