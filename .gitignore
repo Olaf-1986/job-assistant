@@ -31,5 +31,13 @@ data/browser_profiles/linkedin/
 data/capture_token
 data/wellfound_failures/
 
+# Telegram authentication and session artifacts
+.session*
+*.session*
+*.auth_key
+*.authkey
+data/telegram_sessions/
+data/telegram_auth/
+
 # Windows Mark-of-the-Web metadata
 *:Zone.Identifier

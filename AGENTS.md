@@ -8,7 +8,7 @@ Treat implemented behavior separately from planned or assumed behavior.
 - Email ingestion is read-only and runs from `fetch-all`.
 - LinkedIn queue items support two opt-in workflows: user-triggered current-page capture through the Chromium extension, and explicitly invoked Playwright processing through `linkedin-fetch`.
 - `fetch --source linkedin` starts neither workflow and makes no LinkedIn request. Neither `fetch` nor `fetch-all` may start LinkedIn Playwright.
-- Telegram is planned, not implemented. Do not describe planned functionality as implemented unless current code and tests establish otherwise.
+- Telegram is an explicitly invoked, read-only Telethon workflow over configured allowlisted dialogs already joined by the account. It never runs from `fetch` or `fetch-all`.
 - New sources must enter the shared normalization, deduplication, filtering, scoring, persistence, and export pipeline.
 
 ## Sources of truth
@@ -47,16 +47,16 @@ Tests must not use live network or IMAP access, browser sessions, credentials, `
 ## Persistence and pipeline invariants
 
 - Preserve the implemented pipeline order: normalize, deduplicate, filter, score, persist/export. New ingestion paths must use this shared pipeline rather than writing final combined outputs independently.
-- Rebuild derived combined outputs only from authoritative stores: the latest successful HeadHunter raw data and persisted LinkedIn captures/imports. Never treat an old combined output as an authoritative input.
-- Preserve idempotency for repeated email ingestion, duplicate URLs/job IDs, and repeated LinkedIn processing.
+- Rebuild derived combined outputs only from authoritative stores: the latest successful HeadHunter raw data, persisted LinkedIn captures/imports, and persisted Telegram raw records. Never treat an old combined output as an authoritative input.
+- Preserve idempotency for repeated email ingestion, duplicate URLs/job IDs, repeated LinkedIn processing, and Telegram message/vacancy identities.
 - Preserve compatibility with existing persisted records, including the legacy LinkedIn `manual_capture_required` queue status.
-- Never silently lose or destructively replace successful stored data. Failed or skipped HeadHunter/email work must not erase valid HeadHunter or LinkedIn data; HeadHunter refreshes must preserve LinkedIn captures.
+- Never silently lose or destructively replace successful stored data. Failed or skipped HeadHunter/email work must not erase valid HeadHunter, LinkedIn, or Telegram data; HeadHunter refreshes must preserve LinkedIn and Telegram captures.
 - Use the repository's existing persistence and write helpers and preserve their current safe-write behavior. Do not claim general atomic writes unless current code and tests establish them; atomic persistence is not currently a documented repository-wide guarantee.
 
 ## Security and filesystem boundaries
 
 - Never open, read, or inspect `.env` contents. Use documented environment-variable names instead. Never request, print, commit, or export secrets or `.env` values.
-- Never expose credentials, OAuth or capture tokens, cookies, browser profiles, Telegram sessions, or similar authentication material.
+- Never expose credentials, OAuth or capture tokens, verification codes, 2FA passwords, cookies, browser profiles, Telegram sessions, or similar authentication material.
 - Never include generated vacancy data or user mailbox contents in commits or reports.
 - LinkedIn login requirements, CAPTCHA, account restrictions, and similar barriers must stop processing and must never be bypassed. Playwright may use only its dedicated local persistent profile.
 - Reading outside the repository is allowed when required. Writing, editing, moving, or deleting outside the repository is forbidden.

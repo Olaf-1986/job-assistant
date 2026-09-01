@@ -15,7 +15,7 @@ current scope.
 Email errors are sanitized and isolated so successful source data can continue through rebuild and export. Email is an
 ingestion stage, not another automatic vacancy-source fetch.
 
-Every raw vacancy passed to normalization has an explicit `__source` of `headhunter` or `linkedin`. The shared pipeline
+Every raw vacancy passed to normalization has an explicit `__source` of `headhunter`, `linkedin`, or `telegram`. The shared pipeline
 then normalizes, deduplicates, filters, scores, and persists/exports records. Missing, unknown, or conflicting raw source
 markers are errors; legacy persisted records receive their source only at their known persistence boundary.
 
@@ -55,16 +55,50 @@ markers are errors; legacy persisted records receive their source only at their 
 - Vacancies explicitly marked as no longer accepting applications are expired and retain a blocker reason.
 - Extension and Playwright captures use explicit vacancy title/company data and enter the shared pipeline.
 
+### Telegram
+
+- Telegram runs only through explicit `telegram-login`, `telegram-fetch`, and `telegram-audit` commands; it is never
+  started by `fetch` or `fetch-all`.
+- Telethon uses the user's own API credentials and a separate local session. Verification-code and optional 2FA input
+  are hidden, and session/authentication artifacts are ignored by Git. Before the code prompt, login prints only the
+  API-provided delivery type, next delivery type, and retry timeout; transport failures are classified separately
+  from authorization and code errors. `telegram-login --qr` uses Telethon QR login and renders only a local terminal
+  matrix with explicit black/white cells; the QR URL/token is never printed, saved, or sent to an external service.
+  Its update waiter is active before the matrix is displayed. Each server-expiring token may be refreshed locally,
+  for a total 60-second login window. Expiration and post-scan 2FA are handled without exposing secrets. POSIX session
+  directories/files are restricted to `0700`/`0600`, including paths already ending in `.session`; insecure arbitrary
+  existing parent directories are rejected rather than chmod'd.
+- The adapter enumerates existing dialogs and reads only configured allowlisted channel/group usernames that the
+  account has already joined. It never sends, edits, deletes, forwards, joins, or globally searches.
+- Sources are processed sequentially with a configurable pause. Normal FloodWait values are honored and long waits
+  stop safely without bypass behavior.
+- Initial runs read three days. Later runs use per-source checkpoints plus a configurable recent-edit lookback.
+- `--limit` is dry-run-only so a partial newest-first read cannot advance a checkpoint past unread history.
+- `--all-history` with a dry-run limit globally selects the newest messages without a day cutoff, and
+  `--show-targets` prints the eligible shared-pipeline preview in canonical score/date order without persistence.
+- The opt-in `--export-shortlist` dry-run flag writes only that preview to `output/shortlist_tg.md`; it does not import,
+  checkpoint, update source status, or rebuild combined outputs.
+- The opt-in `--export-channel-check` dry-run flag reads the complete requested day window despite checkpoints and
+  writes a timestamped, count-ranked per-channel report set plus `index.md`; shortlist entries expose the original
+  Telegram channel and post URL.
+- Telegram messages are parsed and scored deterministically and are never sent to an LLM, embedding service, or other
+  AI/ML system. External application URLs are preserved but never crawled.
+- Stable source identity is `channel_id:message_id:vacancy_index`; edits preserve the API's original publication date.
+- `telegram-audit` reports current-window yield and pairwise containment, consulting the preceding equal window only
+  for conservative removal-review evidence. Removal review is emitted only for consecutive three-day windows. It never
+  modifies configured source lists.
+
 ## Authoritative Data and Rebuilds
 
-Combined output is derived only from the latest successful HeadHunter raw store and persisted LinkedIn extension,
-Playwright, or manual captures. An old `combined_jobs.json` is never an authoritative input.
+Combined output is derived only from the latest successful HeadHunter raw store, persisted LinkedIn extension,
+Playwright, or manual captures, and persisted Telegram raw records. An old `combined_jobs.json` is never an
+authoritative input.
 
-HeadHunter refreshes preserve LinkedIn captures. Failed or skipped HeadHunter/email work does not erase successful
-stored data. Repeated email ingestion, LinkedIn processing, vacancy IDs, and URLs remain idempotent.
+HeadHunter refreshes preserve LinkedIn and Telegram captures. Failed or skipped HeadHunter/email work does not erase
+successful stored data. Repeated email ingestion, LinkedIn processing, Telegram message identities, vacancy IDs, and
+URLs remain idempotent.
 
 ## Scope Boundaries
 
 Arbeitnow, Jooble, Jobicy, Greenhouse, and Lever are disabled optional/legacy code paths and never enter `fetch-all`.
-Habr, Wellfound, Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are not active sources. Telegram is
-planned but not implemented.
+Habr, Wellfound, Himalayas, Working Nomads, Built In, Dynamite Jobs, and Glassdoor are not active sources.

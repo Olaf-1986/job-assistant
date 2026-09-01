@@ -27,6 +27,11 @@ def test_output_paths_preserve_configured_keys_and_filenames(tmp_path):
         "linkedin_email_queue": outputs.linkedin_email_queue_file,
         "linkedin_rate_limit_state": "linkedin_rate_limit_state.json",
         "email_state": outputs.email_state_file,
+        "telegram_raw": outputs.telegram_raw_file,
+        "telegram_checkpoints": outputs.telegram_checkpoint_file,
+        "telegram_failures": outputs.telegram_failures_file,
+        "telegram_audit": outputs.telegram_audit_file,
+        "telegram_shortlist": outputs.telegram_shortlist_file,
     }
     assert set(paths) == {"dir", *expected_filenames}
     assert paths["dir"] == tmp_path

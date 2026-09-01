@@ -10,12 +10,23 @@ from .errors import sanitize_error
 from .models import SourceStatus
 from .utils import read_json, utc_now, write_json
 
-SOURCE_NAMES = ["headhunter", "email", "linkedin", "arbeitnow", "jooble", "jobicy", "greenhouse", "lever"]
+SOURCE_NAMES = [
+    "headhunter",
+    "email",
+    "linkedin",
+    "telegram",
+    "arbeitnow",
+    "jooble",
+    "jobicy",
+    "greenhouse",
+    "lever",
+]
 LINKEDIN_EXECUTION_MODE = "manual_or_explicit_playwright"
 SOURCE_PRIORITIES = {
     "headhunter": "primary",
     "email": "read_only_alert_ingestion",
     "linkedin": "explicit_queue_processing",
+    "telegram": "explicit_read_only_allowlist",
     "arbeitnow": "disabled",
     "jooble": "disabled",
     "jobicy": "disabled",

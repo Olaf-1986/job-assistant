@@ -16,9 +16,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 class HeadHunterConnector(VacancyConnector):
-    def __init__(self, preferences: Preferences) -> None:
+    def __init__(self, preferences: Preferences, since_days: int | None = None) -> None:
         self.preferences = preferences
         self.source_config = preferences.sources.headhunter
+        self.since_days = since_days
 
     def fetch(self) -> tuple[list[RawRecord], BatchStats]:
         records: list[RawRecord] = []
@@ -67,6 +68,8 @@ class HeadHunterConnector(VacancyConnector):
             "per_page": self.source_config.per_page,
             "search_field": sample.search_field,
         }
+        if self.since_days is not None:
+            params["period"] = self.since_days
         if sample.host:
             params["host"] = sample.host
         if sample.area is not None:

@@ -13,13 +13,16 @@ dependencies = [
     "pydantic>=2.13.4",
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
+    "qrcode>=8.2,<9",
     "rich>=15.0.0",
+    "telethon>=1.44.0,<2",
     "typer>=0.27.0",
     "uvicorn>=0.30",
 ]
 
 [project.scripts]
 job-assistant = "job_assistant.cli:app"
+qf = "job_assistant.cli:qf_app"
 
 [dependency-groups]
 dev = [

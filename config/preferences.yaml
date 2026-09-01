@@ -71,6 +71,28 @@ sources:
     enabled: true
     mode: manual_or_explicit_playwright
     manual_run_only: true
+  telegram:
+    enabled: true
+    mode: user_api_read_only
+    manual_run_only: true
+    requires_env:
+      - TELEGRAM_API_ID
+      - TELEGRAM_API_HASH
+      - TELEGRAM_PHONE
+    session_path_env: TELEGRAM_SESSION_PATH
+    default_session_path: data/telegram_sessions/job_assistant
+    initial_since_days: 3
+    edit_lookback_hours: 12
+    source_pause_seconds: 1.0
+    max_flood_wait_seconds: 300
+    telegram_core_sources:
+      - careerspace
+    telegram_trial_sources: []
+    telegram_excluded_sources:
+      - habrcareer_bot
+      - g_jobbot
+      - myjobit
+      - twinslashjobs
 
 queries:
   primary:
@@ -128,6 +150,10 @@ location:
     - work from home
     - удаленно
     - удалённо
+    - удаленный
+    - удалённый
+    - удаленка
+    - удалёнка
   onsite_keywords:
     - onsite
     - on-site
@@ -139,6 +165,9 @@ location:
     - гибрид
 
 blockers:
+  temporary_company_exclusions:
+    - company: Andersen
+      until: 2026-11-08
   developer_titles:
     - developer
     - engineer
@@ -199,6 +228,9 @@ role_relevance:
     - solution analyst
     - integration analyst
     - api integration analyst
+    - product manager
+    - менеджер продукта
+    - продуктовый менеджер
     - jira
     - confluence
     - atlassian
@@ -290,6 +322,9 @@ role_relevance:
 scoring:
   title_adjustments:
     product_owner: -20
+    product_manager: -20
+    менеджер_продукта: -20
+    продуктовый_менеджер: -20
   keyword_groups:
     jira_admin:
       weight: 40
@@ -441,3 +476,8 @@ outputs:
   email_candidates_file: email_candidates.json
   linkedin_email_queue_file: linkedin_email_queue.md
   email_state_file: email_state.json
+  telegram_raw_file: telegram_raw.json
+  telegram_checkpoint_file: telegram_checkpoints.json
+  telegram_failures_file: telegram_failures.json
+  telegram_audit_file: telegram_audit.json
+  telegram_shortlist_file: shortlist_tg.md

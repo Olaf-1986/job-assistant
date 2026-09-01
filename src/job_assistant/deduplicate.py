@@ -1,24 +1,40 @@
 from __future__ import annotations
 
+import hashlib
+
 from .models import NormalizedVacancy
 from .utils import canonical_url, slugify_text
 
 
 def deduplicate_vacancies(vacancies: list[NormalizedVacancy]) -> tuple[list[NormalizedVacancy], int]:
     result: list[NormalizedVacancy] = []
+    key_sets: list[set[str]] = []
     indexes: dict[str, int] = {}
     duplicates = 0
     for vacancy in vacancies:
-        keys = _keys(vacancy)
-        existing_index = next((indexes[key] for key in keys if key in indexes), None)
-        if existing_index is None:
-            indexes.update({key: len(result) for key in keys})
+        incoming_keys = set(_keys(vacancy))
+        matching_indexes = sorted({indexes[key] for key in incoming_keys if key in indexes})
+        if not matching_indexes:
+            indexes.update({key: len(result) for key in incoming_keys})
             result.append(vacancy)
+            key_sets.append(incoming_keys)
             continue
+
+        existing_index = matching_indexes[0]
+        merged = result[existing_index]
+        merged_keys = set(key_sets[existing_index]) | incoming_keys
+        for bridged_index in reversed(matching_indexes[1:]):
+            merged = merge_vacancies(merged, result[bridged_index])
+            merged_keys.update(key_sets[bridged_index])
+            del result[bridged_index]
+            del key_sets[bridged_index]
+            duplicates += 1
         duplicates += 1
-        merged = merge_vacancies(result[existing_index], vacancy)
+        merged = merge_vacancies(merged, vacancy)
         result[existing_index] = merged
-        indexes.update({key: existing_index for key in _keys(merged)})
+        merged_keys.update(_keys(merged))
+        key_sets[existing_index] = merged_keys
+        indexes = {key: index for index, keys in enumerate(key_sets) for key in keys}
     return result, duplicates
 
 
@@ -30,13 +46,21 @@ def _keys(vacancy: NormalizedVacancy) -> list[str]:
             keys.append(f"url:{url}")
     if vacancy.source_id:
         keys.append(f"id:{vacancy.source}:{vacancy.source_id}")
-    company_title = (
-        f"{slugify_text(vacancy.company)}::{slugify_text(vacancy.title)}::"
-        f"{slugify_text(', '.join(vacancy.location_restrictions))}"
-    )
-    if company_title.strip(":"):
-        keys.append(f"company-title:{company_title}")
+    title = slugify_text(vacancy.title)
+    company = slugify_text(vacancy.company)
+    location = slugify_text(", ".join(vacancy.location_restrictions))
+    if title and company and location:
+        keys.append(f"company-title-location:{company}::{title}::{location}")
+    description = slugify_text(vacancy.description_text)
+    if len(description) >= 80:
+        digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
+        keys.append(f"description:{digest}")
     return keys
+
+
+def vacancies_match(left: NormalizedVacancy, right: NormalizedVacancy) -> bool:
+    """Return whether the shared deterministic duplicate keys identify the same vacancy."""
+    return bool(set(_keys(left)) & set(_keys(right)))
 
 
 def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:
@@ -71,10 +95,27 @@ def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> Normal
     left.source_urls = sorted(
         set([url for url in [*left.source_urls, *right.source_urls, left.source_url, right.source_url] if url])
     )
+    left_references = left.source_metadata.get("source_references", [])
+    right_references = right.source_metadata.get("source_references", [])
+    references = [
+        reference
+        for reference in [
+            *(left_references if isinstance(left_references, list) else []),
+            *(right_references if isinstance(right_references, list) else []),
+        ]
+        if isinstance(reference, dict)
+    ]
+    right_metadata = {key: value for key, value in right.source_metadata.items() if key != "source_references"}
     left.source_metadata = {
         **left.source_metadata,
-        **{f"{right.source}:{key}": value for key, value in right.source_metadata.items()},
+        **{f"{right.source}:{key}": value for key, value in right_metadata.items()},
     }
+    if references:
+        left.source_metadata["source_references"] = [
+            reference for index, reference in enumerate(references) if reference not in references[:index]
+        ]
+    if left.source_id:
+        left.source_ids[left.source] = sorted(set(left.source_ids.get(left.source, []) + [left.source_id]))
     for source, ids in right.source_ids.items():
         left.source_ids[source] = sorted(set(left.source_ids.get(source, []) + ids))
     if right.source_id:

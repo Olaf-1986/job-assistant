@@ -23,6 +23,8 @@ from job_assistant.sources import load_statuses, status_path, write_statuses
         ("ToKeN=SYNTHETIC", "ToKeN=REDACTED"),
         ("PaSsWoRd=SYNTHETIC", "PaSsWoRd=REDACTED"),
         ("SeCrEt=SYNTHETIC", "SeCrEt=REDACTED"),
+        ("api_hash=SYNTHETIC", "api_hash=REDACTED"),
+        ("phone=+995555000000", "phone=REDACTED"),
     ],
 )
 def test_sanitize_error_redacts_supported_secret_patterns(unsafe, expected):

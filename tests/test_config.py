@@ -16,8 +16,23 @@ def test_config_validation_accepts_default_preferences():
     assert preferences.sources.linkedin.enabled is True
     assert preferences.sources.linkedin.mode == "manual_or_explicit_playwright"
     assert preferences.sources.linkedin.manual_run_only is True
+    assert preferences.sources.telegram.enabled is True
+    assert preferences.sources.telegram.mode == "user_api_read_only"
+    assert preferences.sources.telegram.manual_run_only is True
+    assert preferences.sources.telegram.core_sources == [
+        "careerspace",
+    ]
+    assert preferences.sources.telegram.trial_sources == []
+    assert "habrcareer_bot" in preferences.sources.telegram.excluded_sources
     assert not hasattr(preferences.sources, "habr_browser")
     assert not hasattr(preferences.sources, "wellfound_browser")
+
+
+def test_config_includes_temporary_andersen_exclusion():
+    exclusion = load_preferences().blockers.temporary_company_exclusions[0]
+
+    assert exclusion.company == "Andersen"
+    assert exclusion.until.isoformat() == "2026-11-08"
 
 
 def test_config_validation_rejects_invalid_yaml(tmp_path: Path):

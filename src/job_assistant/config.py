@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,40 @@ class HeadHunterSourceConfig(BaseModel):
     search_strings: list[str] = Field(default_factory=list)
 
 
+class TelegramSourceConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool
+    mode: str = "user_api_read_only"
+    manual_run_only: bool = True
+    requires_env: list[str] = Field(default_factory=lambda: ["TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_PHONE"])
+    session_path_env: str = "TELEGRAM_SESSION_PATH"
+    default_session_path: str = "data/telegram_sessions/job_assistant"
+    core_sources: list[str] = Field(alias="telegram_core_sources", min_length=1)
+    trial_sources: list[str] = Field(alias="telegram_trial_sources", default_factory=list)
+    excluded_sources: list[str] = Field(alias="telegram_excluded_sources", default_factory=list)
+    initial_since_days: int = Field(default=3, ge=1, le=90)
+    edit_lookback_hours: int = Field(default=12, ge=1, le=168)
+    source_pause_seconds: float = Field(default=1.0, ge=0.25, le=30)
+    max_flood_wait_seconds: int = Field(default=300, ge=1, le=3600)
+
+    @field_validator("core_sources", "trial_sources", "excluded_sources")
+    @classmethod
+    def normalize_source_names(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip().lstrip("@").lower() for value in values if value and value.strip()]
+        if len(cleaned) != len(values):
+            raise ValueError("Telegram source lists must not contain empty values")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("Telegram source lists must not contain duplicates")
+        return cleaned
+
+    @property
+    def enabled_sources(self) -> list[str]:
+        excluded = set(self.excluded_sources)
+        configured = [*self.core_sources, *self.trial_sources]
+        return list(dict.fromkeys(source for source in configured if source not in excluded))
+
+
 class SourcesConfig(BaseModel):
     jobicy: JobicySourceConfig
     headhunter: HeadHunterSourceConfig
@@ -72,6 +107,7 @@ class SourcesConfig(BaseModel):
     lever: GenericSourceConfig
     email: GenericSourceConfig
     linkedin: GenericSourceConfig
+    telegram: TelegramSourceConfig
 
 
 class QueriesConfig(BaseModel):
@@ -100,6 +136,16 @@ class LocationConfig(BaseModel):
     hybrid_keywords: list[str] = Field(default_factory=list)
 
 
+class TemporaryCompanyExclusion(BaseModel):
+    company: str = Field(min_length=1)
+    until: date
+
+    @field_validator("company")
+    @classmethod
+    def normalize_company(cls, value: str) -> str:
+        return value.strip()
+
+
 class BlockersConfig(BaseModel):
     developer_titles: list[str] = Field(default_factory=list)
     developer_component_keywords: list[str] = Field(default_factory=list)
@@ -107,6 +153,7 @@ class BlockersConfig(BaseModel):
     support_titles: list[str] = Field(default_factory=list)
     non_blocking_work_auth_countries: list[str] = Field(default_factory=list)
     work_auth_patterns: list[str] = Field(default_factory=list)
+    temporary_company_exclusions: list[TemporaryCompanyExclusion] = Field(default_factory=list)
 
 
 class RoleRelevanceConfig(BaseModel):
@@ -142,6 +189,11 @@ class OutputsConfig(BaseModel):
     email_candidates_file: str = "email_candidates.json"
     linkedin_email_queue_file: str = "linkedin_email_queue.md"
     email_state_file: str = "email_state.json"
+    telegram_raw_file: str = "telegram_raw.json"
+    telegram_checkpoint_file: str = "telegram_checkpoints.json"
+    telegram_failures_file: str = "telegram_failures.json"
+    telegram_audit_file: str = "telegram_audit.json"
+    telegram_shortlist_file: str = "shortlist_tg.md"
 
     def output_dir(self) -> Path:
         return ROOT / self.directory

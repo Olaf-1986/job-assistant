@@ -4,6 +4,7 @@ import asyncio
 import imaplib
 import socket
 import ssl
+from datetime import UTC, datetime
 from pathlib import Path
 
 import fastapi.routing
@@ -13,17 +14,143 @@ from typer.testing import CliRunner
 
 from job_assistant.ats import discover_greenhouse_board_token, discover_lever_site
 from job_assistant.capture import create_app
-from job_assistant.cli import _fetch_all_sources, _fetch_source, app
+from job_assistant.cli import (
+    QuickSource,
+    QuickWindow,
+    _fetch_all_sources,
+    _fetch_source,
+    app,
+    fetch,
+    fetch_all,
+    linkedin_fetch,
+    qf_app,
+    quick_fetch,
+    shortlist,
+    telegram_fetch,
+)
 from job_assistant.config import load_preferences
 from job_assistant.linkedin_queue import open_next_pending
-from job_assistant.models import BatchStats
+from job_assistant.models import BatchStats, NormalizedVacancy
 from job_assistant.normalize import normalize_records
+from job_assistant.paths import output_paths
 from job_assistant.persistence import read_headhunter_raw, read_linkedin_manual_raw, rebuild_from_authoritative_sources
 from job_assistant.sources import load_statuses
 from job_assistant.utils import read_json, write_json
 from tests.fixtures.headhunter_records import HEADHUNTER_RESPONSE
 
 runner = CliRunner()
+
+
+@pytest.mark.parametrize(
+    ("window", "days"),
+    [("1d", 1), ("2d", 2), ("3d", 3), ("1w", 7), ("2w", 14), ("3w", 21), ("1m", 30)],
+)
+def test_quick_fetch_window_aliases(window, days):
+    assert QuickWindow(window).days == days
+
+
+def test_qf_entrypoint_exposes_quick_fetch_as_root_command(monkeypatch):
+    callbacks = []
+    monkeypatch.setattr("job_assistant.cli.typer.run", callbacks.append)
+
+    qf_app()
+
+    assert callbacks == [quick_fetch]
+
+
+def test_quick_fetch_all_composes_explicit_source_workflows():
+    calls = []
+
+    class RecordingContext:
+        def invoke(self, callback, **kwargs):
+            calls.append((callback, kwargs))
+
+    quick_fetch(RecordingContext(), QuickWindow.three_days, QuickSource.all, 25, False, 7)
+
+    assert [callback for callback, _ in calls] == [fetch_all, linkedin_fetch, telegram_fetch, shortlist]
+    assert calls[0][1]["last"].days == 3
+    assert calls[1][1]["limit"] == 7
+    assert calls[2][1]["since_days"] == 3
+    assert all(kwargs.get("shortlist_size", kwargs.get("size")) == 25 for _, kwargs in calls)
+    assert calls[-1][1]["source"] is None
+
+
+def test_quick_fetch_hh_does_not_run_email_or_manual_sources():
+    calls = []
+
+    class RecordingContext:
+        def invoke(self, callback, **kwargs):
+            calls.append((callback, kwargs))
+
+    quick_fetch(RecordingContext(), QuickWindow.one_month, QuickSource.headhunter, 10, True, 5)
+
+    assert [callback for callback, _ in calls] == [fetch, shortlist]
+    assert calls[0][1]["source"] == "headhunter"
+    assert calls[0][1]["force"] is True
+    assert calls[0][1]["shortlist_size"] == 10
+    assert calls[0][1]["last"].days == 30
+    assert calls[-1][1]["source"] == "headhunter"
+
+
+def test_quick_fetch_li_builds_linkedin_only_shortlist():
+    calls = []
+
+    class RecordingContext:
+        def invoke(self, callback, **kwargs):
+            calls.append((callback, kwargs))
+
+    quick_fetch(RecordingContext(), QuickWindow.one_week, QuickSource.linkedin, 20, False, 5)
+
+    assert [callback for callback, _ in calls] == [linkedin_fetch, shortlist]
+    assert calls[-1][1] == {"source": "linkedin", "size": 20}
+
+
+def test_shortlist_size_override_is_temporary(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    observed_sizes = []
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+
+    def fake_rebuild(active_preferences, stats):
+        observed_sizes.append(active_preferences.run.shortlist_size)
+        return {}
+
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
+
+    result = runner.invoke(app, ["shortlist", "-n", "17"])
+
+    assert result.exit_code == 0, result.output
+    assert observed_sizes == [17]
+    assert preferences.run.shortlist_size != 17
+
+
+def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    vacancies = [
+        NormalizedVacancy(
+            source=source,
+            sources=[source],
+            title=title,
+            normalized_title=title.lower(),
+            score=100,
+            fetched_at=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+        for source, title in [("headhunter", "HH Analyst"), ("linkedin", "LinkedIn Analyst")]
+    ]
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+
+    def fake_rebuild(*args, **kwargs):
+        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
+        return {}
+
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
+
+    result = runner.invoke(app, ["shortlist", "--source", "li", "-n", "20"])
+
+    assert result.exit_code == 0, result.output
+    markdown = paths["shortlist"].read_text(encoding="utf-8")
+    assert "LinkedIn Analyst" in markdown
+    assert "HH Analyst" not in markdown
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +213,7 @@ def test_fetch_all_cli_never_starts_linkedin_playwright(monkeypatch, tmp_path):
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Playwright login must not start")),
     )
 
-    def fake_fetch_source(preferences, source, force):
+    def fake_fetch_source(preferences, source, force, since_days=None):
         automatic_sources.append(source)
         return [], __import__("job_assistant.models", fromlist=["BatchStats"]).BatchStats(), None
 
@@ -104,6 +231,50 @@ def test_fetch_all_cli_never_starts_linkedin_playwright(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert automatic_sources == ["headhunter"]
+
+
+@pytest.mark.parametrize(
+    ("window", "expected_days"),
+    [
+        ("day", 1),
+        ("2-days", 2),
+        ("3-days", 3),
+        ("week", 7),
+        ("2-weeks", 14),
+        ("3-weeks", 21),
+        ("month", 30),
+    ],
+)
+def test_fetch_all_last_window_applies_to_headhunter_and_email(monkeypatch, tmp_path, window, expected_days):
+    preferences = temp_preferences(tmp_path)
+    headhunter_windows: list[int | None] = []
+    email_windows: list[int] = []
+
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+
+    def fake_fetch_source(preferences, source, force, since_days=None):
+        headhunter_windows.append(since_days)
+        return [], BatchStats(), None
+
+    class EmailResult:
+        candidates = []
+        headhunter_raw = []
+        stats = BatchStats()
+
+    def fake_email_sync(preferences, since_days):
+        email_windows.append(since_days)
+        return EmailResult()
+
+    monkeypatch.setattr("job_assistant.cli._fetch_source", fake_fetch_source)
+    monkeypatch.setattr("job_assistant.cli.sync_email_alerts", fake_email_sync)
+    monkeypatch.setattr("job_assistant.cli.mark_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", lambda *args, **kwargs: {})
+
+    result = runner.invoke(app, ["fetch-all", "--force", "--last", window])
+
+    assert result.exit_code == 0, result.output
+    assert headhunter_windows == [expected_days]
+    assert email_windows == [expected_days]
 
 
 def test_fetch_all_skips_email_sync_when_email_is_disabled(monkeypatch, tmp_path):

@@ -6,6 +6,7 @@ from job_assistant.config import load_preferences
 from job_assistant.filters import apply_filters
 from job_assistant.normalize import html_to_text, normalize_record, normalize_records
 from job_assistant.scoring import score_vacancy
+from job_assistant.utils import canonical_url
 from tests.fixtures.headhunter_records import REMOTE_BA
 from tests.fixtures.vacancy_records import BUSINESS_ANALYST, MALFORMED, RUSSIAN_ROLE
 
@@ -15,6 +16,31 @@ def test_html_to_text_preserves_paragraphs_and_bullets():
     assert "Intro" in text
     assert "- One" in text
     assert "- Two" in text
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://hh.ru/applicant/vacancy_response?vacancyId=123",
+        "https://hh.ru/applicant/vacancy_response?from=vacancy&vacancyId=123",
+        "https://hh.ru/applicant/vacancy_response/?vacancyId=123&utm_source=test",
+    ],
+)
+def test_headhunter_response_url_becomes_direct_vacancy_url(url):
+    assert canonical_url(url) == "https://hh.ru/vacancy/123"
+
+
+def test_headhunter_normalization_uses_direct_url_for_apply_link():
+    preferences = load_preferences()
+    record = {
+        **REMOTE_BA,
+        "apply_alternate_url": "https://hh.ru/applicant/vacancy_response?vacancyId=123",
+    }
+
+    vacancy = normalize_record({"__source": "headhunter", **record}, "Business Analyst", preferences)
+
+    assert vacancy is not None
+    assert vacancy.apply_url == "https://hh.ru/vacancy/123"
 
 
 def test_normalize_detects_language_and_skips_malformed():
@@ -196,7 +222,7 @@ def test_headhunter_tags_participate_in_role_filtering_and_scoring_without_chang
     ("record", "message"),
     [
         ({}, "missing required __source"),
-        ({"__source": "telegram"}, "unknown __source: 'telegram'"),
+        ({"__source": "unknown"}, "unknown __source: 'unknown'"),
     ],
 )
 def test_normalize_requires_known_explicit_source(record, message):

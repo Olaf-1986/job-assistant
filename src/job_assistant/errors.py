@@ -9,5 +9,10 @@ def sanitize_error(error: object) -> str:
     sanitized = re.sub(r"(?is)\bresponse_body=.*", "response_body=[omitted]", sanitized)
     sanitized = re.sub(r"(?i)(authorization:\s*bearer\s+)[^\s,;]+", r"\1REDACTED", sanitized)
     sanitized = re.sub(r"(?i)(\bbearer\s+)[^\s,;]+", r"\1REDACTED", sanitized)
-    sanitized = re.sub(r"(?i)\b(access_token|token|password|secret)=([^\s&;,]+)", r"\1=REDACTED", sanitized)
+    sanitized = re.sub(
+        r"(?i)\b(access_token|token|password|secret|api_id|api_hash|phone|verification_code|phone_code_hash|2fa_password)="
+        r"([^\s&;,]+)",
+        r"\1=REDACTED",
+        sanitized,
+    )
     return sanitized if len(sanitized) <= 240 else f"{sanitized[:237]}..."

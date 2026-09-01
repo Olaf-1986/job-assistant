@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from job_assistant.config import load_preferences
 from job_assistant.filters import apply_filters, apply_hard_blockers, contains_phrase
 from job_assistant.language import detect_language, detect_linkedin_content_language, has_explicit_german_requirement
@@ -33,6 +35,50 @@ def test_tbilisi_hybrid_and_georgian_work_auth_are_not_blocked():
     georgia = normalized(GEORGIAN_AUTH)
     assert georgia.blocker is False
     assert georgia.warnings
+
+
+@pytest.mark.parametrize(
+    ("salary_max", "currency", "period"),
+    [
+        (200_000, "RUB", None),
+        (200_000, "RUR", None),
+        (200_000 / 87, "USD", None),
+        (200_000 / 87, "$", None),
+        (200_000 / 33, "GEL", None),
+        (200_000 / 33, "lari", None),
+        (2_400_000, "RUB", "year"),
+    ],
+)
+def test_salary_max_at_or_below_200000_rub_equivalent_is_blocked(salary_max, currency, period):
+    vacancy = normalized(BUSINESS_ANALYST).model_copy(
+        update={"salary_max": salary_max, "salary_currency": currency, "salary_period": period}
+    )
+
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+
+    assert "maximum monthly salary is at or below 200000 RUB equivalent" in filtered.blocker_reasons
+
+
+@pytest.mark.parametrize(
+    ("salary_max", "currency", "period"),
+    [
+        (200_001, "RUB", None),
+        (200_001 / 87, "USD", None),
+        (200_001 / 33, "GEL", None),
+        (2_400_012, "RUB", "year"),
+        (100_000, "EUR", None),
+        (None, "RUB", None),
+        (10_000, "RUB", "week"),
+    ],
+)
+def test_salary_max_above_threshold_or_not_comparable_is_not_salary_blocked(salary_max, currency, period):
+    vacancy = normalized(BUSINESS_ANALYST).model_copy(
+        update={"salary_max": salary_max, "salary_currency": currency, "salary_period": period}
+    )
+
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+
+    assert not any("maximum monthly salary" in reason for reason in filtered.blocker_reasons)
 
 
 def test_generic_work_auth_compensation_sentence_is_not_blocked():

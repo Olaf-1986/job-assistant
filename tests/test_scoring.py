@@ -50,3 +50,10 @@ def test_negative_adjustments():
     assert scored(JUNIOR_ROLE).score < scored(BUSINESS_ANALYST).score
     assert scored(INTERNSHIP).score < scored(BUSINESS_ANALYST).score
     assert any("-10 crypto" in line for line in scored(CRYPTO_ROLE).score_breakdown)
+
+
+def test_product_manager_is_scored_below_business_analyst():
+    product_manager = scored({**BUSINESS_ANALYST, "jobTitle": "Product Manager"})
+
+    assert product_manager.score == scored(BUSINESS_ANALYST).score - 20
+    assert any("-20 title adjustment: product manager" in line for line in product_manager.score_breakdown)

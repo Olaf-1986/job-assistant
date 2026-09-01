@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import html
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,49 @@ def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[Norm
         key=lambda item: (item.score, item.publication_date.timestamp() if item.publication_date else 0.0),
         reverse=True,
     )[:size]
+
+
+def export_source_shortlist(vacancies: list[NormalizedVacancy], source: str, size: int, path: Path) -> int:
+    """Write a source-attributed view while preserving the shared shortlist rules."""
+    attributed = [vacancy for vacancy in vacancies if source == vacancy.source or source in vacancy.sources]
+    return export_shortlist(attributed, size, path)
+
+
+def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path) -> int:
+    """Write an eligible score/date-sorted Markdown shortlist."""
+    shortlist = sorted_shortlist(vacancies, size)
+    ensure_directory(path.parent)
+    path.write_text(_shortlist_markdown(shortlist), encoding="utf-8")
+    return len(shortlist)
+
+
+def export_channel_shortlists(
+    vacancies_by_channel: Mapping[str, list[NormalizedVacancy]],
+    channel_errors: Mapping[str, str | None],
+    directory: Path,
+) -> list[tuple[str, int, Path]]:
+    """Write one ranked Markdown file per allowlisted Telegram channel."""
+    ensure_directory(directory)
+    ranked = sorted(
+        vacancies_by_channel,
+        key=lambda channel: (-len(vacancies_by_channel[channel]), channel.casefold()),
+    )
+    exported: list[tuple[str, int, Path]] = []
+    width = max(3, len(str(len(ranked))))
+    for rank, channel in enumerate(ranked, start=1):
+        vacancies = vacancies_by_channel[channel]
+        safe_channel = re.sub(r"[^a-zA-Z0-9_]+", "_", channel).strip("_") or "unknown"
+        path = directory / f"{rank:0{width}d}_{len(vacancies):04d}_{safe_channel}.md"
+        export_shortlist(vacancies, len(vacancies), path)
+        exported.append((channel, len(vacancies), path))
+
+    index_lines = ["# Telegram channel check", "", "Sorted by passed-vacancy count (descending).", ""]
+    for channel, count, path in exported:
+        error = channel_errors.get(channel)
+        status = f" — {error}" if error else ""
+        index_lines.append(f"- {count}: [@{channel}]({path.name}){status}")
+    (directory / "index.md").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+    return exported
 
 
 def export_all(
@@ -143,8 +187,34 @@ def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
         warnings = _shortlist_warnings(vacancy)
         if warnings:
             lines.append(f"- Warnings: {'; '.join(warnings)}")
-        lines.extend([f"- Vacancy URL: {vacancy.source_url or vacancy.application_url or 'n/a'}", ""])
+        telegram_channels, telegram_posts = _telegram_sources(vacancy)
+        if telegram_channels:
+            lines.append(f"- Telegram channel: {', '.join(f'@{item}' for item in telegram_channels)}")
+        if telegram_posts:
+            lines.append(f"- Telegram post: {', '.join(telegram_posts)}")
+        lines.extend(
+            [f"- Vacancy URL: {vacancy.apply_url or vacancy.source_url or vacancy.application_url or 'n/a'}", ""]
+        )
     return "\n".join(lines)
+
+
+def _telegram_sources(vacancy: NormalizedVacancy) -> tuple[list[str], list[str]]:
+    metadata = vacancy.source_metadata if isinstance(vacancy.source_metadata, dict) else {}
+    references = metadata.get("source_references", [])
+    candidates = [item for item in references if isinstance(item, dict) and item.get("source") == "telegram"]
+    if vacancy.source == "telegram":
+        candidates.append(metadata)
+    channels = [
+        str(item["channel_username"]).removeprefix("@")
+        for item in candidates
+        if isinstance(item.get("channel_username"), str) and item["channel_username"].strip("@")
+    ]
+    posts = [
+        str(item["message_url"])
+        for item in candidates
+        if isinstance(item.get("message_url"), str) and item["message_url"].startswith(("https://", "http://"))
+    ]
+    return list(dict.fromkeys(channels)), list(dict.fromkeys(posts))
 
 
 def _shortlist_warnings(vacancy: NormalizedVacancy) -> list[str]:

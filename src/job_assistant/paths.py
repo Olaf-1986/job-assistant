@@ -24,4 +24,9 @@ def output_paths(preferences: Preferences) -> dict[str, Path]:
         "linkedin_email_queue": directory / preferences.outputs.linkedin_email_queue_file,
         "linkedin_rate_limit_state": directory / "linkedin_rate_limit_state.json",
         "email_state": directory / preferences.outputs.email_state_file,
+        "telegram_raw": directory / preferences.outputs.telegram_raw_file,
+        "telegram_checkpoints": directory / preferences.outputs.telegram_checkpoint_file,
+        "telegram_failures": directory / preferences.outputs.telegram_failures_file,
+        "telegram_audit": directory / preferences.outputs.telegram_audit_file,
+        "telegram_shortlist": directory / preferences.outputs.telegram_shortlist_file,
     }

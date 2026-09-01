@@ -35,13 +35,22 @@ def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
     ]
 
 
+def read_telegram_raw(preferences: Preferences) -> list[RawRecord]:
+    path = output_paths(preferences)["telegram_raw"]
+    if not path.exists():
+        return []
+    data = read_json(path, [])
+    return _with_source(data, "telegram", "Telegram raw store") if isinstance(data, list) else []
+
+
 def rebuild_from_authoritative_sources(
     preferences: Preferences, stats: BatchStats | None = None, headhunter_raw: list[RawRecord] | None = None
 ) -> dict[str, Any]:
     source_raw = read_headhunter_raw(preferences) if headhunter_raw is None else headhunter_raw
     hh_raw = _dedupe_headhunter_raw(_with_source(source_raw, "headhunter", "HeadHunter input"))
     linkedin_raw = read_linkedin_manual_raw(preferences)
-    all_raw = [*hh_raw, *linkedin_raw]
+    telegram_raw = read_telegram_raw(preferences)
+    all_raw = [*hh_raw, *linkedin_raw, *telegram_raw]
     vacancies = normalize_records(all_raw, preferences)
     vacancies, duplicates = deduplicate_vacancies(vacancies)
     run_stats = stats or BatchStats()

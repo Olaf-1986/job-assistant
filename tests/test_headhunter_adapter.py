@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from job_assistant.config import load_preferences
 from job_assistant.connectors.headhunter import HeadHunterConnector, _build_headers, _extract_records
-from job_assistant.filters import apply_filters
+from job_assistant.filters import _active_company_exclusion, apply_filters
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
 from job_assistant.scoring import score_vacancies
@@ -185,6 +186,39 @@ def test_headhunter_sends_configured_search_and_work_format_params():
     assert client.params["host"] == "hh.ru"
     assert client.params["schedule"] == "remote"
     assert client.params["work_format"] == ["REMOTE"]
+    assert "period" not in client.params
+
+
+@pytest.mark.parametrize("since_days", [1, 2, 3, 7, 14, 21, 30])
+def test_headhunter_sends_requested_publication_window(since_days):
+    preferences = load_preferences()
+    connector = HeadHunterConnector(preferences, since_days=since_days)
+    sample = preferences.sources.headhunter.samples[0]
+    stats = BatchStats()
+
+    class FakeClient:
+        params = None
+
+        def get(self, url, params=None):
+            self.params = params
+            return httpx.Response(200, json={"items": []}, request=httpx.Request("GET", str(url)))
+
+    client = FakeClient()
+    connector._request_page(client, sample, "Business Analyst", 0, stats)  # type: ignore[arg-type]
+
+    assert client.params["period"] == since_days
+
+
+def test_andersen_exclusion_is_active_through_configured_date_and_then_expires():
+    from datetime import date
+
+    preferences = load_preferences()
+
+    assert _active_company_exclusion("Andersen Lab", preferences, today=date(2026, 11, 8)) == (
+        "company temporarily excluded through 2026-11-08: Andersen"
+    )
+    assert _active_company_exclusion("Andersen Lab", preferences, today=date(2026, 11, 9)) is None
+    assert _active_company_exclusion("Different Company", preferences, today=date(2026, 11, 8)) is None
 
 
 def test_headhunter_tbilisi_sample_sends_area_and_work_formats():

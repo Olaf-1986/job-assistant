@@ -46,6 +46,24 @@ def test_email_credential_status_requires_both_nonempty_credentials(monkeypatch,
     assert load_statuses(preferences)["email"].credential_status == "present"
 
 
+def test_telegram_status_requires_all_local_credentials(monkeypatch, tmp_path):
+    preferences = load_preferences()
+    preferences = preferences.model_copy(
+        update={"outputs": preferences.outputs.model_copy(update={"directory": str(tmp_path / "output")})}
+    )
+    for name in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_PHONE"):
+        monkeypatch.delenv(name, raising=False)
+    status = load_statuses(preferences)["telegram"]
+    assert status.mode == "user_api_read_only"
+    assert status.priority == "explicit_read_only_allowlist"
+    assert status.credential_status == "missing"
+
+    monkeypatch.setenv("TELEGRAM_API_ID", "12345")
+    monkeypatch.setenv("TELEGRAM_API_HASH", "synthetic-hash")
+    monkeypatch.setenv("TELEGRAM_PHONE", "+995555000000")
+    assert load_statuses(preferences)["telegram"].credential_status == "present"
+
+
 def test_jooble_incomplete_description_normalizes_for_manual_review():
     preferences = load_preferences()
     vacancies = normalize_records(

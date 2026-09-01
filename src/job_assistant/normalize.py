@@ -495,6 +495,82 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
     )
 
 
+def _normalize_telegram_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
+    warnings: list[str] = []
+    title = record.get("title")
+    if not isinstance(title, str) or not title.strip():
+        LOGGER.warning("Skipping malformed Telegram record without a title")
+        return None
+    channel_id = record.get("channel_id")
+    message_id = record.get("message_id")
+    vacancy_index = record.get("vacancy_index", 0)
+    if channel_id is None or message_id is None or not isinstance(vacancy_index, int):
+        LOGGER.warning("Skipping malformed Telegram record without a stable source identity")
+        return None
+    source_id = f"{channel_id}:{message_id}:{vacancy_index}"
+    raw_text = record.get("raw_text") if isinstance(record.get("raw_text"), str) else None
+    requirements_text = record.get("requirements_text") if isinstance(record.get("requirements_text"), str) else None
+    location = record.get("location") if isinstance(record.get("location"), str) else None
+    message_url = record.get("message_url") if isinstance(record.get("message_url"), str) else None
+    apply_url = record.get("apply_url") if isinstance(record.get("apply_url"), str) else None
+    vacancy = _base_vacancy(
+        "telegram",
+        source_id,
+        query,
+        title,
+        record.get("company") if isinstance(record.get("company"), str) else None,
+        None,
+        raw_text,
+        raw_text,
+        location,
+        message_url,
+        preferences,
+        apply_url=canonical_url(apply_url),
+        requirements_text=requirements_text,
+        publication_date=parse_datetime(record.get("published_at")),
+        salary_min=parse_optional_float(record.get("salary_min"), "salary_min", warnings),
+        salary_max=parse_optional_float(record.get("salary_max"), "salary_max", warnings),
+        salary_currency=record.get("salary_currency") if isinstance(record.get("salary_currency"), str) else None,
+        work_mode=record.get("work_mode") if isinstance(record.get("work_mode"), str) else None,
+        international_remote_eligibility=record.get("international_remote_eligibility")
+        if isinstance(record.get("international_remote_eligibility"), str)
+        else None,
+        requires_manual_location_review=record.get("requires_manual_location_review") is True,
+        warnings=warnings,
+        source_metadata={
+            "channel_username": record.get("channel_username"),
+            "channel_id": channel_id,
+            "message_id": message_id,
+            "message_url": message_url,
+            "vacancy_index": vacancy_index,
+            "published_at": record.get("published_at"),
+            "edited_at": record.get("edited_at"),
+            "forwarded_from": record.get("forwarded_from"),
+            "raw_text": raw_text,
+            "apply_url": apply_url,
+            "source_references": [
+                {
+                    "source": "telegram",
+                    "channel_username": record.get("channel_username"),
+                    "channel_id": channel_id,
+                    "message_id": message_id,
+                    "vacancy_index": vacancy_index,
+                    "message_url": message_url,
+                    "published_at": record.get("published_at"),
+                    "edited_at": record.get("edited_at"),
+                    "forwarded_from": record.get("forwarded_from"),
+                    "raw_text": raw_text,
+                    "apply_url": apply_url,
+                }
+            ],
+        },
+    )
+    external_url = canonical_url(apply_url)
+    vacancy.application_url = external_url or canonical_url(message_url)
+    vacancy.raw_application_urls = list(dict.fromkeys(url for url in (external_url, canonical_url(message_url)) if url))
+    return vacancy
+
+
 def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
     warnings: list[str] = []
     title = record.get("jobTitle")
@@ -559,10 +635,13 @@ def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Prefere
 def normalize_records(raw_records: list[RawRecord], preferences: Preferences) -> list[NormalizedVacancy]:
     normalized: list[NormalizedVacancy] = []
     for item in raw_records:
+        if not isinstance(item, dict):
+            LOGGER.warning("Skipping malformed non-object raw record; contents omitted")
+            continue
         record = item.get("record", item)
         query = str(item.get("query", "unknown"))
         if not isinstance(record, dict):
-            LOGGER.warning("Skipping malformed non-object API record: %s", item)
+            LOGGER.warning("Skipping malformed non-object raw record; contents omitted")
             continue
         container_source = item.get("__source") if isinstance(item, dict) and "record" in item else None
         record_source = record.get("__source")
@@ -579,6 +658,7 @@ def normalize_records(raw_records: list[RawRecord], preferences: Preferences) ->
 _SOURCE_NORMALIZERS = {
     "headhunter": _normalize_headhunter_record,
     "linkedin": _normalize_linkedin_record,
+    "telegram": _normalize_telegram_record,
     "jooble": _normalize_jooble_record,
     "arbeitnow": _normalize_arbeitnow_record,
     "greenhouse": _normalize_greenhouse_record,

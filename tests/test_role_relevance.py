@@ -76,3 +76,13 @@ def test_non_target_analyst_and_engineering_titles_do_not_match_target_titles(ti
     assert vacancy is not None
     filtered = apply_filters([vacancy], preferences)[0]
     assert filtered.role_relevance_breakdown != ["title matches configured target title"]
+
+
+def test_product_manager_remains_eligible_but_low_priority():
+    preferences = load_preferences()
+    vacancy = normalize_record({**BUSINESS_ANALYST, "jobTitle": "Product Manager"}, "Product Manager", preferences)
+
+    assert vacancy is not None
+    filtered = apply_filters([vacancy], preferences)[0]
+    assert filtered.blocker is False
+    assert filtered.role_relevance_breakdown == ["title matches configured target title"]
