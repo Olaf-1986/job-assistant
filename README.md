@@ -290,7 +290,7 @@ The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.
 - Onsite/hybrid outside Tbilisi is blocked.
 - Explicit Russia-only work-location restrictions are blocked.
 - Russian citizenship by itself is not blocked.
-- Explicit German requirements are blocked or held for manual review.
+- Explicit requirements for languages other than Russian, English, or Spanish are blocked.
 - A known maximum monthly salary of `200,000 RUB` or less is blocked. The comparison uses `1 USD = 87 RUB` and
   `1 GEL (lari) = 33 RUB`; annual maxima are divided by 12. Unknown maxima and unsupported currencies remain eligible.
 - Role relevance normally requires a target-title match.

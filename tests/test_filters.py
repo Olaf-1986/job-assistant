@@ -4,7 +4,12 @@ import pytest
 
 from job_assistant.config import load_preferences
 from job_assistant.filters import apply_filters, apply_hard_blockers, contains_phrase
-from job_assistant.language import detect_language, detect_linkedin_content_language, has_explicit_german_requirement
+from job_assistant.language import (
+    detect_language,
+    detect_linkedin_content_language,
+    explicit_unsupported_language_requirements,
+    has_explicit_german_requirement,
+)
 from job_assistant.location import detect_work_mode
 from job_assistant.normalize import normalize_record
 from tests.fixtures.vacancy_records import (
@@ -129,6 +134,66 @@ def test_explicit_german_requirement_blocks():
     filtered = apply_filters([vacancy], preferences)[0]
     assert filtered.blocker is True
     assert "explicit German language requirement" in filtered.blocker_reasons
+
+
+def test_explicit_greek_requirement_from_linkedin_vacancy_blocks():
+    preferences = load_preferences()
+    vacancy = normalize_record(
+        {
+            "__source": "linkedin",
+            "page_url": "https://www.linkedin.com/jobs/view/language-regression",
+            "vacancy_title": "Business Analyst",
+            "company": "Example Co",
+            "source_label": "linkedin",
+            "visible_text": (
+                "Requirements analysis and stakeholder management. "
+                "Excellent command of the English & Greek language."
+            ),
+        },
+        "manual_capture",
+        preferences,
+    )
+    assert vacancy is not None
+
+    filtered = apply_filters([vacancy], preferences)[0]
+
+    assert filtered.blocker is True
+    assert "explicit Greek language requirement" in filtered.blocker_reasons
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "English language is required.",
+        "Fluent in Russian.",
+        "Excellent command of English and Spanish languages.",
+    ],
+)
+def test_allowed_language_requirements_do_not_block(text):
+    assert explicit_unsupported_language_requirements(text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "language"),
+    [
+        ("French language is mandatory.", "French"),
+        ("Must speak Polish.", "Polish"),
+        ("German proficiency at C1 level.", "German"),
+        ("Excellent command of the Klingon language.", "Klingon"),
+        ("Обязательно свободное владение грузинским языком.", "Georgian"),
+    ],
+)
+def test_other_explicit_language_requirements_are_detected(text, language):
+    assert explicit_unsupported_language_requirements(text) == [language]
+
+
+def test_language_mentions_without_a_demand_do_not_block():
+    text = (
+        "Experience working with German clients in a multilingual European environment. "
+        "Python is the required programming language."
+    )
+
+    assert explicit_unsupported_language_requirements(text) == []
 
 
 def test_bare_atlassian_engineering_title_stays_blocked():

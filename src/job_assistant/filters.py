@@ -4,7 +4,7 @@ import re
 from datetime import date
 
 from .config import Preferences
-from .language import has_explicit_german_requirement
+from .language import explicit_unsupported_language_requirements
 from .models import NormalizedVacancy
 from .utils import lower_text
 
@@ -157,8 +157,8 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
         reasons.append("work location restricted to Russia")
     if vacancy.requires_manual_location_review:
         reasons.append("manual location review required")
-    if has_explicit_german_requirement(text):
-        reasons.append("explicit German language requirement")
+    for language in explicit_unsupported_language_requirements(text):
+        reasons.append(f"explicit {language} language requirement")
     country = _foreign_requirement_country(text, preferences)
     if country:
         reasons.append(f"foreign citizenship/work authorization requirement: {country}")
