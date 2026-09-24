@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from enum import Enum
@@ -13,6 +14,7 @@ from .env import load_project_env
 load_project_env()
 
 import typer
+from pydantic import TypeAdapter, ValidationError
 from rich.console import Console
 from rich.table import Table
 
@@ -51,7 +53,7 @@ from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_stat
 from .telegram_audit import TelegramAuditResult, audit_telegram
 from .telegram_client import TelegramConnectionError, TelegramError, telegram_login
 from .telegram_ingestion import TelegramFetchResult, fetch_telegram
-from .utils import read_json, write_json
+from .utils import read_json, read_json_strict, write_json
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 app = typer.Typer(help="Local job-search assistant vertical slice.")
@@ -773,11 +775,19 @@ def shortlist_deduplicated(
     """Write vacancies absent from the combined shortlist saved by the previous invocation."""
     preferences = _load_or_exit(size)
     paths = output_paths(preferences)
+    previous_path = paths["previous_combined_shortlist"]
+    try:
+        previous = (
+            TypeAdapter(list[NormalizedVacancy]).validate_python(read_json_strict(previous_path))
+            if previous_path.exists()
+            else []
+        )
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValidationError):
+        console.print(
+            "[red]Invalid previous-combined baseline; file left unchanged. Fix or remove it before retrying.[/red]"
+        )
+        raise typer.Exit(1) from None
     _, vacancies, _ = prepare_authoritative_vacancies(preferences)
-    previous_data = (
-        read_json(paths["previous_combined_shortlist"], []) if paths["previous_combined_shortlist"].exists() else []
-    )
-    previous = [NormalizedVacancy.model_validate(item) for item in previous_data if isinstance(item, dict)]
     count = export_deduplicated_shortlist(
         vacancies,
         previous,

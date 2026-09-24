@@ -264,6 +264,43 @@ def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(mon
     assert [item["source_id"] for item in baseline] == ["1", "2"]
 
 
+@pytest.mark.parametrize(
+    "invalid_baseline",
+    [
+        "{malformed",
+        '{"unexpected": "object"}',
+        '[{"title": "missing required normalized vacancy fields"}]',
+    ],
+    ids=["malformed-json", "wrong-top-level", "invalid-record-schema"],
+)
+def test_deduplicated_shortlist_rejects_invalid_baseline_without_mutating_files(
+    monkeypatch, tmp_path, invalid_baseline
+):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    paths["dir"].mkdir(parents=True)
+    paths["previous_combined_shortlist"].write_text(invalid_baseline, encoding="utf-8")
+    paths["deduplicated_shortlist"].write_text("existing shortlist\n", encoding="utf-8")
+    before_baseline = paths["previous_combined_shortlist"].read_bytes()
+    before_shortlist = paths["deduplicated_shortlist"].read_bytes()
+    prepared = []
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+    monkeypatch.setattr(
+        "job_assistant.cli.prepare_authoritative_vacancies",
+        lambda *args, **kwargs: prepared.append(True),
+    )
+
+    for _ in range(2):
+        result = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
+
+        assert result.exit_code == 1
+        assert "Invalid previous-combined baseline" in result.output
+        assert paths["previous_combined_shortlist"].read_bytes() == before_baseline
+        assert paths["deduplicated_shortlist"].read_bytes() == before_shortlist
+        assert list(paths["dir"].glob("previous_combined_shortlist.json.corrupt-*")) == []
+    assert prepared == []
+
+
 def test_linkedin_source_shortlist_excludes_records_older_than_window(monkeypatch, tmp_path):
     preferences = temp_preferences(tmp_path)
     paths = output_paths(preferences)

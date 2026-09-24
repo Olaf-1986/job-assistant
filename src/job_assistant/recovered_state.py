@@ -15,7 +15,7 @@ from .config import Preferences
 from .deduplicate import vacancies_match
 from .models import NormalizedVacancy
 from .paths import output_paths
-from .utils import read_json
+from .utils import read_json_strict
 
 
 class RecoveredHistoryEntry(BaseModel):
@@ -55,7 +55,7 @@ def apply_recovered_state(
         if not path.exists():
             return
         # A malformed file must stop the rebuild, never silently clear exclusions/history.
-        state = RecoveredState.model_validate(read_json(path))
+        state = RecoveredState.model_validate(read_json_strict(path))
     for vacancy in vacancies:
         history_evidence = sorted(
             {

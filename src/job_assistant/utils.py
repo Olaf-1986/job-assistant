@@ -69,6 +69,11 @@ def read_json(path: Path, default: Any = None) -> Any:
         return default
 
 
+def read_json_strict(path: Path) -> Any:
+    """Read JSON without repairing, moving, or replacing invalid state files."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def canonical_url(url: str | None) -> str | None:
     if not url:
         return None

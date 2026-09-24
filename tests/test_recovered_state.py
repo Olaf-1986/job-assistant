@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -139,6 +140,42 @@ def test_invalid_recovery_state_aborts_rebuild_without_overwriting_exports(tmp_p
         rebuild_from_authoritative_sources(preferences)
 
     assert read_json(paths["combined_json"]) == [{"preserve": True}]
+
+
+@pytest.mark.parametrize(
+    "invalid_state",
+    [
+        "{malformed",
+        "[]",
+        '{"schema_version": 1, "reconstructed_at": "not-a-date", "artifacts": [], "history": [], "exclusions": []}',
+    ],
+    ids=["malformed-json", "wrong-top-level", "invalid-schema"],
+)
+def test_invalid_recovered_state_remains_in_place_and_blocks_every_rebuild(tmp_path, invalid_state):
+    preferences = preferences_at(tmp_path)
+    paths = output_paths(preferences)
+    paths["dir"].mkdir(parents=True, exist_ok=True)
+    paths["raw"].write_text("[]", encoding="utf-8")
+    paths["recovered_state"].write_text(invalid_state, encoding="utf-8")
+    existing_outputs = {
+        paths["normalized"]: b"existing normalized\n",
+        paths["combined_json"]: b"existing combined json\n",
+        paths["combined_csv"]: b"existing combined csv\n",
+        paths["combined_shortlist"]: b"existing shortlist\n",
+        paths["blocked"]: b"existing blocked\n",
+        paths["summary"]: b"existing summary\n",
+    }
+    for path, content in existing_outputs.items():
+        path.write_bytes(content)
+    before_state = paths["recovered_state"].read_bytes()
+
+    for _ in range(2):
+        with pytest.raises((json.JSONDecodeError, ValidationError)):
+            rebuild_from_authoritative_sources(preferences)
+
+        assert paths["recovered_state"].read_bytes() == before_state
+        assert {path: path.read_bytes() for path in existing_outputs} == existing_outputs
+        assert list(paths["dir"].glob("recovered_shortlist_state.json.corrupt-*")) == []
 
 
 def test_recovered_closure_keeps_evidence_date_and_capture_content(tmp_path):
