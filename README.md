@@ -66,7 +66,10 @@ uv run python -m job_assistant telegram-fetch --limit 1000 --all-history --show-
 uv run python -m job_assistant telegram-fetch --since-days 30 --export-shortlist --export-channel-check --dry-run
 uv run python -m job_assistant telegram-audit --since-days 3
 uv run python -m job_assistant shortlist
+uv run python -m job_assistant shortlist --source headhunter
+uv run python -m job_assistant shortlist --source linkedin
 uv run python -m job_assistant shortlist --source telegram
+uv run python -m job_assistant shortlist-deduplicated
 uv run pytest
 ```
 
@@ -78,7 +81,7 @@ as `qf` while the project environment is active, or through `uv run qf` without 
 ```bash
 qf 1d all 25
 qf 2d hh 50
-qf 3d li 20 --li-limit 10
+qf 3d li 20
 qf 1w tg 30
 qf 2w all 50
 qf 3w hh 100
@@ -88,14 +91,27 @@ qf 1m all 50
 Windows are `1d`, `2d`, `3d`, `1w`, `2w`, `3w`, and `1m`; sources are `all`, `hh`, `li`, and `tg`.
 `SIZE` temporarily controls the generated shortlist length without editing `preferences.yaml`. `all` explicitly runs the
 normal HH/email workflow followed by LinkedIn queue processing and read-only Telegram ingestion. LinkedIn is
-queue-driven, so its items are not filtered by `WINDOW`; `--li-limit` controls how many pending queue items it opens
-(default 5). Telegram uses the window on its initial read, while existing checkpoints still take precedence. Add
-`--force` only when another successful HH fetch is intentional.
-For `hh`, `li`, or `tg`, `output/shortlist.md` contains only vacancies attributed to that selected source;
-`output/combined_shortlist.md` remains the canonical all-source view.
+queue-driven: `qf` processes every pending item inside `WINDOW`, using `published_at` or the email queue's
+`received_at` fallback; there is no separate `qf` LinkedIn limit. Records with neither date remain eligible. Before
+export, `qf` opens the current LinkedIn
+shortlist candidates (and enough replacements for any closed entries), checks the vacancy content for an explicit
+`No longer accepting applications` marker, and persists closed status as a blocker. The same check is available with
+`linkedin-fetch --recheck-shortlist`; optionally pair it with `--since-days DAYS`. Normal LinkedIn page delays
+and stop conditions still apply. Telegram uses the window on its initial read, while existing checkpoints still take
+precedence. Add `--force` only when another successful HH fetch is intentional.
+`output/combined_shortlist.md` is the canonical all-source view. Source-specific commands write
+`output/shortlist_hh.md`, `output/shortlist_li.md`, or `output/shortlist_tg.md`; the old `output/shortlist.md` is no
+longer part of the pipeline.
 
 The same temporary shortlist override is also available as `fetch -n SIZE`, `fetch-all -n SIZE`,
 `linkedin-fetch -n SIZE`, `telegram-fetch -n SIZE`, and `shortlist -n SIZE`.
+
+`shortlist-deduplicated -n SIZE` writes the highest-ranked current eligible vacancies that were absent from the
+combined shortlist saved by its previous invocation to `output/deduplicated_shortlist.md`. It uses the same stable
+vacancy identity rules as the shared pipeline and computes the current candidates directly from authoritative stores.
+After the Markdown file is written successfully, it advances `output/previous_combined_shortlist.json` to the current
+combined shortlist. The first invocation has no prior baseline, so all current eligible entries are new and establish
+the baseline for the next invocation.
 
 `fetch-all` automatically fetches only HeadHunter. It then runs enabled read-only email ingestion as a separate stage
 before rebuilding outputs. `fetch --source linkedin` starts neither LinkedIn workflow and makes no LinkedIn request; it
@@ -110,6 +126,11 @@ Output files under `output/` are derived data. Combined outputs are rebuilt only
 - LinkedIn records stored in `output/manual_imports.json` by the extension, explicit `linkedin-fetch`, or explicit manual import.
 - Telegram records stored in `output/telegram_raw.json` by explicit `telegram-fetch` runs.
 
+Shared deduplication uses canonical URLs and source IDs, exact normalized descriptions, and company/title/location
+identity. It also merges different-URL reposts only when normalized company and title are exact and their substantive
+descriptions have at least 98% word-multiset overlap; this catches harmless text reordering while keeping materially
+different openings separate.
+
 Email ingestion also writes derived `output/email_candidates.json`, `output/linkedin_email_queue.md`, and `output/email_state.json`. These files are derived/local state and are safe to rebuild from the configured mailbox.
 
 Telegram checkpoints and deterministic extraction failures are stored separately in `output/telegram_checkpoints.json`
@@ -123,8 +144,10 @@ publication-date window. HeadHunter receives the corresponding official API `per
 alert lookback uses the same window. Omitting `--last` preserves the configured HH behavior and the existing 30-day
 email lookback. LinkedIn remains queue-driven, while Telegram keeps its explicit `--since-days` option.
 
-Andersen vacancies are temporarily blocked from eligible results through 8 November 2026 inclusive. The exclusion
-expires automatically on 9 November 2026.
+Bank of Georgia vacancies are permanently blocked because its roles require fluent Georgian. Andersen remains
+temporarily blocked through 8 November 2026 inclusive. Reiz tech, Specific-Group, Keepgo, Dotmatics, Mad Brains,
+Selecty, Sibedge, and Научсофт are temporarily blocked through 6 November 2026 inclusive; those exclusions expire
+automatically on 7 November 2026.
 
 HeadHunter uses configured official API search groups:
 
@@ -153,7 +176,7 @@ uv run python -m job_assistant linkedin-fetch --limit 5 --dry-run
 uv run python -m job_assistant linkedin-fetch --limit 5
 ```
 
-`linkedin-fetch` is opt-in queue processing, not a scheduled or automatic source. `--login` opens a headed Chromium window for manual login and stores browser state only in the dedicated local persistent profile. A normal run applies the title prefilter before navigation, uses a newly selected 5–20 second delay after each opened vacancy, blocks image/media/font requests, extracts semantic job content, and checkpoints each processed queue item. Login-required, CAPTCHA, account-restriction, or similar barrier pages stop the run and are never bypassed. An explicit rate-limit signal also stops immediately without retry, writes only sanitized local block timing to `output/linkedin_rate_limit_state.json`, and requires a separate invocation after two minutes. Successful extension and Playwright captures enter the same normalization, deduplication, filtering, scoring, persistence, and export pipeline. LinkedIn pages marked as no longer accepting applications are recorded as expired with a blocker reason.
+`linkedin-fetch` is opt-in queue processing, not a scheduled or automatic source. `--login` opens a headed Chromium window for manual login and stores browser state only in the dedicated local persistent profile. A normal run applies the title prefilter before navigation, uses a newly selected 5–20 second delay after each opened vacancy, blocks image/media/font requests, extracts semantic job content, and checkpoints each processed queue item. `--recheck-shortlist` additionally rereads already saved, currently eligible LinkedIn candidates; `qf` enables that mode automatically. Login-required, CAPTCHA, account-restriction, or similar barrier pages stop the run and are never bypassed. An explicit rate-limit signal also stops immediately without retry, writes only sanitized local block timing to `output/linkedin_rate_limit_state.json`, and requires a separate invocation after two minutes. Successful extension and Playwright captures enter the same normalization, deduplication, filtering, scoring, persistence, and export pipeline. LinkedIn pages marked as no longer accepting applications are persisted as expired with a blocker reason and excluded from rebuilt shortlists.
 
 ## Telegram Ingestion
 
@@ -292,7 +315,8 @@ The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.
 - Russian citizenship by itself is not blocked.
 - Explicit requirements for languages other than Russian, English, or Spanish are blocked.
 - A known maximum monthly salary of `200,000 RUB` or less is blocked. The comparison uses `1 USD = 87 RUB` and
-  `1 GEL (lari) = 33 RUB`; annual maxima are divided by 12. Unknown maxima and unsupported currencies remain eligible.
+  `1 GEL (lari) = 33 RUB`; annual amounts are divided by 12. When no maximum is provided, a known minimum below
+  `150,000 RUB` monthly equivalent is also blocked. Missing salary bounds and unsupported currencies remain eligible.
 - Role relevance normally requires a target-title match.
 - Description-only relevance requires at least two distinct strong BA/SA, modeling, integration/API, Atlassian administration, SQL/data, or technical documentation signal groups.
 - Token-boundary matching prevents `intern` from matching `internal` and `AI` from matching ordinary words.

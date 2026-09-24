@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 
 from .models import NormalizedVacancy
 from .utils import canonical_url, slugify_text
@@ -13,7 +14,14 @@ def deduplicate_vacancies(vacancies: list[NormalizedVacancy]) -> tuple[list[Norm
     duplicates = 0
     for vacancy in vacancies:
         incoming_keys = set(_keys(vacancy))
-        matching_indexes = sorted({indexes[key] for key in incoming_keys if key in indexes})
+        matching_indexes = sorted(
+            {indexes[key] for key in incoming_keys if key in indexes}
+            | {
+                index
+                for index, existing in enumerate(result)
+                if _near_identical_company_title_description(vacancy, existing)
+            }
+        )
         if not matching_indexes:
             indexes.update({key: len(result) for key in incoming_keys})
             result.append(vacancy)
@@ -60,7 +68,28 @@ def _keys(vacancy: NormalizedVacancy) -> list[str]:
 
 def vacancies_match(left: NormalizedVacancy, right: NormalizedVacancy) -> bool:
     """Return whether the shared deterministic duplicate keys identify the same vacancy."""
-    return bool(set(_keys(left)) & set(_keys(right)))
+    return bool(set(_keys(left)) & set(_keys(right))) or _near_identical_company_title_description(left, right)
+
+
+def _near_identical_company_title_description(left: NormalizedVacancy, right: NormalizedVacancy) -> bool:
+    """Match reposts whose URLs differ but company, title, and substantive word content do not."""
+    left_company = slugify_text(left.company)
+    right_company = slugify_text(right.company)
+    if not left_company or left_company != right_company:
+        return False
+    left_title = slugify_text(left.title)
+    right_title = slugify_text(right.title)
+    if not left_title or left_title != right_title:
+        return False
+    left_words = slugify_text(left.description_text).split()
+    right_words = slugify_text(right.description_text).split()
+    if min(len(left_words), len(right_words)) < 40:
+        return False
+    left_counts = Counter(left_words)
+    right_counts = Counter(right_words)
+    shared_word_count = sum((left_counts & right_counts).values())
+    similarity = 2 * shared_word_count / (len(left_words) + len(right_words))
+    return similarity >= 0.98
 
 
 def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:

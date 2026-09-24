@@ -221,6 +221,31 @@ def test_andersen_exclusion_is_active_through_configured_date_and_then_expires()
     assert _active_company_exclusion("Different Company", preferences, today=date(2026, 11, 8)) is None
 
 
+def test_permanent_company_exclusion_never_expires():
+    from datetime import date
+
+    preferences = load_preferences()
+
+    assert _active_company_exclusion("Bank of Georgia Group", preferences, today=date(2099, 1, 1)) == (
+        "company permanently excluded: Bank of Georgia"
+    )
+
+
+@pytest.mark.parametrize(
+    "company",
+    ["REIZ TECH", "Specific Group", "Keepgo", "Dotmatics", "Mad Brains", "Selecty", "Sibedge", "Научсофт"],
+)
+def test_requested_temporary_company_exclusions_expire_after_two_months(company):
+    from datetime import date
+
+    preferences = load_preferences()
+
+    assert "temporarily excluded through 2026-11-06" in (
+        _active_company_exclusion(company, preferences, today=date(2026, 11, 6)) or ""
+    )
+    assert _active_company_exclusion(company, preferences, today=date(2026, 11, 7)) is None
+
+
 def test_headhunter_tbilisi_sample_sends_area_and_work_formats():
     preferences = load_preferences()
     connector = HeadHunterConnector(preferences)

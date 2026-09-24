@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from job_assistant.config import load_preferences
-from job_assistant.deduplicate import deduplicate_vacancies
+from job_assistant.deduplicate import deduplicate_vacancies, vacancies_match
 from job_assistant.models import NormalizedVacancy
 from job_assistant.normalize import normalize_record
 from tests.fixtures.vacancy_records import BUSINESS_ANALYST
@@ -51,6 +51,84 @@ def test_deduplicate_merges_all_groups_connected_by_cross_source_bridge():
         "linkedin": ["li-1"],
         "telegram": ["1001:10:0"],
     }
+
+
+def test_deduplicate_merges_near_identical_repost_with_different_urls_and_no_location():
+    description = "Analyze requirements, integrations, APIs, and process documentation. " * 20
+    first = _vacancy("linkedin", "li-1", "https://www.linkedin.com/jobs/view/100", description)
+    second = _vacancy(
+        "linkedin",
+        "li-2",
+        "https://www.linkedin.com/jobs/view/200",
+        f"{description}Updated posting.",
+    )
+    first.company = second.company = "Example Group"
+
+    result, duplicates = deduplicate_vacancies([first, second])
+
+    assert vacancies_match(first, second)
+    assert duplicates == 1
+    assert len(result) == 1
+    assert result[0].source_ids["linkedin"] == ["li-1", "li-2"]
+
+
+def test_deduplicate_keeps_same_company_title_with_materially_different_descriptions():
+    first = _vacancy(
+        "linkedin",
+        "li-1",
+        "https://www.linkedin.com/jobs/view/100",
+        "Analyze financial reporting, budgets, forecasts, and accounting controls. " * 10,
+    )
+    second = _vacancy(
+        "linkedin",
+        "li-2",
+        "https://www.linkedin.com/jobs/view/200",
+        "Analyze APIs, event streams, integration contracts, and distributed systems. " * 10,
+    )
+    first.company = second.company = "Example Group"
+
+    result, duplicates = deduplicate_vacancies([first, second])
+
+    assert not vacancies_match(first, second)
+    assert duplicates == 0
+    assert len(result) == 2
+
+
+def test_deduplicate_keeps_near_identical_text_when_title_differs():
+    description = "Analyze requirements, integrations, APIs, and process documentation. " * 20
+    first = _vacancy("linkedin", "li-1", "https://www.linkedin.com/jobs/view/100", description)
+    second = _vacancy("linkedin", "li-2", "https://www.linkedin.com/jobs/view/200", description + "Update")
+    first.company = second.company = "Example Group"
+    second.title = "Senior Business Analyst"
+    second.normalized_title = "senior business analyst"
+
+    result, duplicates = deduplicate_vacancies([first, second])
+
+    assert duplicates == 0
+    assert len(result) == 2
+
+
+def test_deduplicate_matches_near_identical_description_when_sections_are_reordered():
+    introduction = "Analyze business requirements and stakeholder needs. " * 20
+    responsibilities = "Define API contracts and document system integrations. " * 20
+    first = _vacancy(
+        "linkedin",
+        "li-1",
+        "https://www.linkedin.com/jobs/view/100",
+        introduction + responsibilities,
+    )
+    second = _vacancy(
+        "linkedin",
+        "li-2",
+        "https://www.linkedin.com/jobs/view/200",
+        responsibilities + introduction + "Updated posting.",
+    )
+    first.company = second.company = "Example Group"
+
+    result, duplicates = deduplicate_vacancies([first, second])
+
+    assert duplicates == 1
+    assert len(result) == 1
 
 
 def _vacancy(source: str, source_id: str, application_url: str, description: str) -> NormalizedVacancy:

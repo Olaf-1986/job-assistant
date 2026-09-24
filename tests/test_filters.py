@@ -12,6 +12,7 @@ from job_assistant.language import (
 )
 from job_assistant.location import detect_work_mode
 from job_assistant.normalize import normalize_record
+from tests.fixtures.headhunter_records import REMOTE_BA
 from tests.fixtures.vacancy_records import (
     BUSINESS_ANALYST,
     FOREIGN_CITIZENSHIP,
@@ -86,6 +87,76 @@ def test_salary_max_above_threshold_or_not_comparable_is_not_salary_blocked(sala
     assert not any("maximum monthly salary" in reason for reason in filtered.blocker_reasons)
 
 
+@pytest.mark.parametrize(
+    ("salary_min", "currency", "period"),
+    [
+        (149_999, "RUB", None),
+        (149_999 / 87, "USD", None),
+        (149_999 / 87, "$", None),
+        (149_999 / 33, "GEL", None),
+        (149_999 / 33, "lari", None),
+        (1_799_988, "RUB", "year"),
+    ],
+)
+def test_salary_min_below_150000_without_upper_bound_is_blocked(salary_min, currency, period):
+    vacancy = normalized(BUSINESS_ANALYST).model_copy(
+        update={
+            "salary_min": salary_min,
+            "salary_max": None,
+            "salary_currency": currency,
+            "salary_period": period,
+        }
+    )
+
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+
+    assert "minimum monthly salary without upper bound is below 150000 RUB equivalent" in filtered.blocker_reasons
+
+
+@pytest.mark.parametrize(
+    ("salary_min", "currency", "period"),
+    [
+        (150_000, "RUB", None),
+        (150_000 / 87, "USD", None),
+        (150_000 / 33, "GEL", None),
+        (1_800_000, "RUB", "year"),
+        (100_000, "EUR", None),
+        (None, "RUB", None),
+        (10_000, "RUB", "week"),
+    ],
+)
+def test_salary_min_at_threshold_or_not_comparable_without_upper_bound_is_not_blocked(salary_min, currency, period):
+    vacancy = normalized(BUSINESS_ANALYST).model_copy(
+        update={
+            "salary_min": salary_min,
+            "salary_max": None,
+            "salary_currency": currency,
+            "salary_period": period,
+        }
+    )
+
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+
+    assert not any("minimum monthly salary without upper bound" in reason for reason in filtered.blocker_reasons)
+
+
+def test_headhunter_open_ended_salary_below_150000_is_blocked_after_normalization():
+    raw = {
+        "__source": "headhunter",
+        **REMOTE_BA,
+        "id": "open-ended-low-salary",
+        "salary": {"from": 100_000, "to": None, "currency": "RUR", "gross": True},
+    }
+    vacancy = normalize_record(raw, "Business Analyst", load_preferences())
+    assert vacancy is not None
+
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+
+    assert filtered.salary_min == 100_000
+    assert filtered.salary_max is None
+    assert "minimum monthly salary without upper bound is below 150000 RUB equivalent" in filtered.blocker_reasons
+
+
 def test_generic_work_auth_compensation_sentence_is_not_blocked():
     raw = {
         **BUSINESS_ANALYST,
@@ -146,8 +217,7 @@ def test_explicit_greek_requirement_from_linkedin_vacancy_blocks():
             "company": "Example Co",
             "source_label": "linkedin",
             "visible_text": (
-                "Requirements analysis and stakeholder management. "
-                "Excellent command of the English & Greek language."
+                "Requirements analysis and stakeholder management. Excellent command of the English & Greek language."
             ),
         },
         "manual_capture",

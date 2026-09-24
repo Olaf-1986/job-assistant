@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from job_assistant.config import load_preferences
 from job_assistant.filters import apply_filters
+from job_assistant.models import NormalizedVacancy
 from job_assistant.normalize import normalize_record
 from job_assistant.role_relevance import title_prefilter_matches
 from tests.fixtures.vacancy_records import BUSINESS_ANALYST
@@ -54,6 +57,22 @@ def test_target_title_variants_pass_headhunter_prefilter_and_role_relevance(titl
     filtered = apply_filters([vacancy], preferences)[0]
     assert filtered.blocker is False
     assert filtered.role_relevance_breakdown == ["title matches configured target title"]
+
+
+@pytest.mark.parametrize("title", ["Business Analyst 1C", "Бизнес-аналитик 1С", "Системный аналитик 1C"])
+def test_one_c_analyst_titles_are_blocked(title: str):
+    preferences = load_preferences()
+    vacancy = NormalizedVacancy(
+        source="headhunter",
+        title=title,
+        normalized_title=title.casefold(),
+        fetched_at=datetime.now(UTC),
+    )
+
+    filtered = apply_filters([vacancy], preferences)[0]
+
+    assert filtered.blocker is True
+    assert filtered.role_relevance_breakdown == ["clearly irrelevant profession before description evaluation"]
 
 
 @pytest.mark.parametrize("title", ["senior business analyst", "LEAD Системный аналитик"])

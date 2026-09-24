@@ -18,6 +18,12 @@ ingestion stage, not another automatic vacancy-source fetch.
 Every raw vacancy passed to normalization has an explicit `__source` of `headhunter`, `linkedin`, or `telegram`. The shared pipeline
 then normalizes, deduplicates, filters, scores, and persists/exports records. Missing, unknown, or conflicting raw source
 markers are errors; legacy persisted records receive their source only at their known persistence boundary.
+Different-URL reposts are deduplicated only when normalized company and title are exact and substantive description
+word multisets overlap by at least 98%, in addition to the existing exact identity keys.
+Known monthly salary maxima at or below `200,000 RUB` equivalent are blocked. With no maximum, known minima below
+`150,000 RUB` equivalent are also blocked; USD and GEL use the configured rule-of-thumb conversion constants.
+Bank of Georgia is permanently excluded. Reiz tech, Specific-Group, Keepgo, Dotmatics, Mad Brains, Selecty, Sibedge,
+and Научсофт are excluded through 6 November 2026 inclusive; the existing Andersen exclusion lasts through 8 November.
 
 ## Ingestion Boundaries
 
@@ -52,7 +58,10 @@ markers are errors; legacy persisted records receive their source only at their 
 - An explicit LinkedIn rate-limit signal stops immediately without retry, stores sanitized local timing state, and
   prevents another invocation from starting for two minutes. There is no automatic resume; processing continues only
   through a later, separate command.
-- Vacancies explicitly marked as no longer accepting applications are expired and retain a blocker reason.
+- Vacancies explicitly marked as no longer accepting applications are persisted as expired, retain a blocker reason,
+  and are excluded from rebuilt shortlists. `linkedin-fetch --recheck-shortlist` rereads already saved eligible
+  candidates; `qf` processes every pending queue item in its requested freshness window without an additional item
+  cap, then rechecks enough saved candidates for the requested LinkedIn shortlist size.
 - Extension and Playwright captures use explicit vacancy title/company data and enter the shared pipeline.
 
 ### Telegram
@@ -93,6 +102,12 @@ markers are errors; legacy persisted records receive their source only at their 
 Combined output is derived only from the latest successful HeadHunter raw store, persisted LinkedIn extension,
 Playwright, or manual captures, and persisted Telegram raw records. An old `combined_jobs.json` is never an
 authoritative input.
+
+`combined_shortlist.md` is the sole canonical all-source Markdown shortlist. Source-attributed views are written to
+`shortlist_hh.md`, `shortlist_li.md`, and `shortlist_tg.md`; the legacy generic `shortlist.md` is not written.
+`shortlist-deduplicated` computes current candidates from authoritative stores, excludes identities found in the
+combined-shortlist baseline saved by its previous invocation, writes `deduplicated_shortlist.md`, and then advances
+the JSON baseline. That baseline is comparison state only and is never an authoritative vacancy input.
 
 HeadHunter refreshes preserve LinkedIn and Telegram captures. Failed or skipped HeadHunter/email work does not erase
 successful stored data. Repeated email ingestion, LinkedIn processing, Telegram message identities, vacancy IDs, and

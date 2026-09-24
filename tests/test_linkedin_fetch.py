@@ -23,6 +23,7 @@ from job_assistant.linkedin_fetch import (
     fetch_pending_linkedin,
 )
 from job_assistant.linkedin_rate_limit import read_linkedin_rate_limit_state, record_linkedin_rate_limit
+from job_assistant.paths import output_paths
 from job_assistant.utils import read_json, write_json
 
 FIXTURES = Path("tests/fixtures")
@@ -447,6 +448,37 @@ def test_title_prefilter_prevents_navigation(tmp_path):
     )
 
 
+def test_unlimited_fetch_processes_all_pending_items_inside_requested_window(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    now = datetime.now(UTC)
+    queue = [
+        linkedin_item("161", received_at=(now - timedelta(days=1)).isoformat()),
+        linkedin_item("162", received_at=(now - timedelta(days=4)).isoformat()),
+        linkedin_item("163", received_at=None),
+        linkedin_item("164", title="Software Engineer", received_at=(now - timedelta(days=1)).isoformat()),
+    ]
+    write_queue(preferences, queue)
+    visited: list[str] = []
+
+    def fetcher(url):
+        visited.append(url)
+        return rendered_job_html(), "Business Analyst | Example Co | LinkedIn"
+
+    stats = fetch_pending_linkedin(
+        preferences,
+        limit=None,
+        dry_run=True,
+        pause_seconds=0,
+        pending_since_days=3,
+        page_fetcher=fetcher,
+    )
+
+    assert visited == ["https://www.linkedin.com/jobs/view/161", "https://www.linkedin.com/jobs/view/163"]
+    assert stats["opened"] == 2
+    assert stats["title_prefilter_rejected"] == 1
+    assert stats["pending_outside_window"] == 1
+
+
 def test_location_prefilter_rejects_explicit_non_tbilisi_onsite_before_navigation(tmp_path):
     preferences = temp_preferences(tmp_path)
     write_queue(preferences, [linkedin_item("113", location="Hybrid · Berlin, Germany")])
@@ -582,6 +614,102 @@ def test_expired_page_records_no_longer_accepting_blocker(tmp_path):
     record = read_json(preferences.outputs.output_dir() / preferences.outputs.email_candidates_file)[0]
     assert record["pipeline_outcome"] == "expired"
     assert record["blocker_reasons"] == ["LinkedIn vacancy is no longer accepting applications"]
+
+
+def test_recheck_marks_saved_expired_vacancy_and_removes_it_from_shortlist(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    write_queue(preferences, [linkedin_item("156")])
+
+    fetch_pending_linkedin(
+        preferences,
+        limit=1,
+        dry_run=False,
+        pause_seconds=0,
+        page_fetcher=lambda url: (rendered_job_html(), "Business Analyst | Example Co | LinkedIn"),
+    )
+    paths = output_paths(preferences)
+    assert "https://www.linkedin.com/jobs/view/156" in paths["combined_shortlist"].read_text(encoding="utf-8")
+
+    visited: list[str] = []
+
+    def expired_fetcher(url):
+        visited.append(url)
+        raise LinkedInFetchError("expired")
+
+    stats = fetch_pending_linkedin(
+        preferences,
+        limit=1,
+        dry_run=False,
+        pause_seconds=0,
+        recheck_shortlist_size=1,
+        page_fetcher=expired_fetcher,
+    )
+
+    assert visited == ["https://www.linkedin.com/jobs/view/156"]
+    assert stats["rechecked"] == 1
+    assert stats["recheck_expired"] == 1
+    manual_record = read_json(paths["manual_imports"])[0]["record"]
+    assert manual_record["linkedin_status"] == "expired"
+    assert manual_record["linkedin_status_checked_at"]
+    combined = read_json(paths["combined_json"])
+    assert combined[0]["blocker"] is True
+    assert combined[0]["blocker_reasons"] == ["LinkedIn vacancy is no longer accepting applications"]
+    assert "https://www.linkedin.com/jobs/view/156" not in paths["combined_shortlist"].read_text(encoding="utf-8")
+    queue_record = read_json(paths["email_candidates"])[0]
+    assert queue_record["pipeline_outcome"] == "expired"
+
+
+def test_recheck_dry_run_does_not_persist_expired_status(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    write_queue(preferences, [linkedin_item("157")])
+    fetch_pending_linkedin(
+        preferences,
+        limit=1,
+        dry_run=False,
+        pause_seconds=0,
+        page_fetcher=lambda url: (rendered_job_html(), "Business Analyst | Example Co | LinkedIn"),
+    )
+    paths = output_paths(preferences)
+
+    stats = fetch_pending_linkedin(
+        preferences,
+        limit=1,
+        dry_run=True,
+        pause_seconds=0,
+        recheck_shortlist_size=1,
+        page_fetcher=lambda url: (_ for _ in ()).throw(LinkedInFetchError("expired")),
+    )
+
+    assert stats["recheck_expired"] == 1
+    manual_record = read_json(paths["manual_imports"])[0]["record"]
+    assert "linkedin_status" not in manual_record
+    assert read_json(paths["email_candidates"])[0]["pipeline_outcome"] == "shortlisted"
+
+
+def test_recheck_rate_limit_persists_local_block(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    write_queue(preferences, [linkedin_item("158")])
+    fetch_pending_linkedin(
+        preferences,
+        limit=1,
+        dry_run=False,
+        pause_seconds=0,
+        page_fetcher=lambda url: (rendered_job_html(), "Business Analyst | Example Co | LinkedIn"),
+    )
+
+    with pytest.raises(LinkedInStopRun, match="resume with a separate run"):
+        fetch_pending_linkedin(
+            preferences,
+            limit=1,
+            dry_run=False,
+            pause_seconds=0,
+            recheck_shortlist_size=1,
+            page_fetcher=lambda url: (_ for _ in ()).throw(LinkedInStopRun("rate_limited", signal="http_429")),
+        )
+
+    state = read_linkedin_rate_limit_state(preferences)
+    assert state is not None
+    assert state["active"] is True
 
 
 def test_rate_limit_stops_immediately_persists_local_block_and_never_retries(tmp_path):

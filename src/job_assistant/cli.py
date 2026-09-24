@@ -3,7 +3,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
@@ -27,7 +27,13 @@ from .connectors.jooble import JoobleConnector
 from .connectors.lever import LeverConnector
 from .email_ingestion import sync_email_alerts
 from .errors import sanitize_error
-from .export import export_channel_shortlists, export_shortlist, export_source_shortlist
+from .export import (
+    export_channel_shortlists,
+    export_deduplicated_shortlist,
+    export_shortlist,
+    export_source_shortlist,
+    sorted_shortlist,
+)
 from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_linkedin, run_login
 from .linkedin_queue import (
     LinkedInQueueError,
@@ -40,7 +46,7 @@ from .linkedin_queue import (
 )
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
-from .persistence import read_headhunter_raw, rebuild_from_authoritative_sources
+from .persistence import prepare_authoritative_vacancies, read_headhunter_raw, rebuild_from_authoritative_sources
 from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_statuses, mark_status, write_statuses
 from .telegram_audit import TelegramAuditResult, audit_telegram
 from .telegram_client import TelegramConnectionError, TelegramError, telegram_login
@@ -402,7 +408,9 @@ def linkedin_fetch(
     login: bool = typer.Option(
         False, "--login", help="Open dedicated headed Chromium profile for manual LinkedIn login."
     ),
-    limit: int = typer.Option(5, "--limit", min=1, max=1000, help="Maximum pending LinkedIn candidates to process."),
+    limit: int | None = typer.Option(
+        5, "--limit", min=1, max=1000, help="Maximum pending LinkedIn candidates to process."
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Open and extract without writing queue/import/shortlist files."
     ),
@@ -424,6 +432,18 @@ def linkedin_fetch(
         help="Prioritize Tbilisi/remote and stronger titles while keeping EMEA ambiguous.",
     ),
     shortlist_size: int | None = typer.Option(None, "--shortlist-size", "-n", min=1, max=500),
+    recheck_shortlist: bool = typer.Option(
+        False,
+        "--recheck-shortlist",
+        help="Open current LinkedIn shortlist candidates and exclude vacancies no longer accepting applications.",
+    ),
+    since_days: int | None = typer.Option(
+        None,
+        "--since-days",
+        min=1,
+        max=90,
+        help="Process and recheck only records in this publication/receipt window; undated records remain eligible.",
+    ),
 ) -> None:
     """Fetch queued LinkedIn vacancies through a dedicated Playwright browser profile."""
     if login:
@@ -439,6 +459,9 @@ def linkedin_fetch(
             pause_seconds=pause_seconds,
             location_prefilter=location_prefilter,
             prioritize=prioritize,
+            pending_since_days=since_days,
+            recheck_shortlist_size=preferences.run.shortlist_size if recheck_shortlist else 0,
+            recheck_since_days=since_days,
         )
     except LinkedInStopRun as exc:
         console.print(f"[red]LinkedIn fetch stopped:[/red] {exc}")
@@ -450,7 +473,9 @@ def linkedin_fetch(
         f"LinkedIn fetch: opened={stats['opened']} imported={stats['imported']} "
         f"title_prefilter_rejected={stats['title_prefilter_rejected']} "
         f"location_prefilter_rejected={stats['location_prefilter_rejected']} expired={stats['expired']} "
-        f"extraction_failed={stats['extraction_failed']} dry_run={dry_run}"
+        f"extraction_failed={stats['extraction_failed']} rechecked={stats['rechecked']} "
+        f"recheck_expired={stats['recheck_expired']} recheck_failed={stats['recheck_failed']} "
+        f"pending_outside_window={stats['pending_outside_window']} dry_run={dry_run}"
     )
 
 
@@ -637,7 +662,6 @@ def quick_fetch(
     source: QuickSource = typer.Argument(help="Source: all, hh, li, or tg."),
     shortlist_size: int = typer.Argument(min=1, max=500, help="Maximum shortlist entries."),
     force: bool = typer.Option(False, "--force", help="Allow another successful HeadHunter fetch today."),
-    linkedin_limit: int = typer.Option(5, "--li-limit", min=1, max=1000, help="LinkedIn queue items to process."),
 ) -> None:
     """Short, composable alias for source fetches and shortlist sizing."""
     fetch_window = {
@@ -661,16 +685,18 @@ def quick_fetch(
             last=fetch_window,
         )
     if source in {QuickSource.all, QuickSource.linkedin}:
-        console.print("LinkedIn is queue-driven; the lookback token does not filter queued LinkedIn items.")
+        console.print("LinkedIn will process all pending queue items inside the requested lookback window.")
         ctx.invoke(
             linkedin_fetch,
             login=False,
-            limit=linkedin_limit,
+            limit=None,
             dry_run=False,
             pause_seconds=None,
             location_prefilter=False,
             prioritize=False,
             shortlist_size=shortlist_size,
+            recheck_shortlist=True,
+            since_days=window.days,
         )
     if source in {QuickSource.all, QuickSource.telegram}:
         ctx.invoke(
@@ -693,7 +719,7 @@ def quick_fetch(
             QuickSource.telegram: "telegram",
         }[source]
     )
-    ctx.invoke(shortlist, source=shortlist_source, size=shortlist_size)
+    ctx.invoke(shortlist, source=shortlist_source, size=shortlist_size, since_days=window.days)
 
 
 def qf_app() -> None:
@@ -707,6 +733,9 @@ def shortlist(
         None, "--source", help="Optional source-only view: headhunter (hh), linkedin (li), or telegram (tg)."
     ),
     size: int | None = typer.Option(None, "--size", "-n", min=1, max=500, help="Shortlist entries for this run."),
+    since_days: int | None = typer.Option(
+        None, "--since-days", min=1, max=90, help="Exclude source records older than this many days."
+    ),
 ) -> None:
     """Rebuild canonical shortlist outputs from all authoritative source stores."""
     preferences = _load_or_exit(size)
@@ -720,20 +749,50 @@ def shortlist(
         paths = output_paths(preferences)
         combined = read_json(paths["combined_json"], [])
         vacancies = [NormalizedVacancy.model_validate(item) for item in combined if isinstance(item, dict)]
+        published_since = datetime.now(UTC) - timedelta(days=since_days) if since_days is not None else None
+        shortlist_path = {
+            "headhunter": paths["headhunter_shortlist"],
+            "linkedin": paths["linkedin_shortlist"],
+            "telegram": paths["telegram_shortlist"],
+        }[source_key]
         count = export_source_shortlist(
             vacancies,
             source_key,
             preferences.run.shortlist_size,
-            paths["shortlist"],
+            shortlist_path,
+            published_since=published_since,
         )
-        if source_key == "telegram":
-            export_source_shortlist(
-                vacancies,
-                source_key,
-                preferences.run.shortlist_size,
-                paths["telegram_shortlist"],
-            )
-        console.print(f"{source_key.title()}-only shortlist: {count} records written to {paths['shortlist']}.")
+        console.print(f"{source_key.title()}-only shortlist: {count} records written to {shortlist_path}.")
+
+
+@app.command("shortlist-deduplicated")
+def shortlist_deduplicated(
+    size: int | None = typer.Option(None, "--size", "-n", min=1, max=500, help="Maximum new shortlist entries."),
+) -> None:
+    """Write vacancies absent from the combined shortlist saved by the previous invocation."""
+    preferences = _load_or_exit(size)
+    paths = output_paths(preferences)
+    _, vacancies, _ = prepare_authoritative_vacancies(preferences)
+    previous_data = (
+        read_json(paths["previous_combined_shortlist"], []) if paths["previous_combined_shortlist"].exists() else []
+    )
+    previous = [NormalizedVacancy.model_validate(item) for item in previous_data if isinstance(item, dict)]
+    count = export_deduplicated_shortlist(
+        vacancies,
+        previous,
+        preferences.run.shortlist_size,
+        paths["deduplicated_shortlist"],
+    )
+    current_shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
+    write_json(
+        paths["previous_combined_shortlist"],
+        [vacancy.model_dump(mode="json") for vacancy in current_shortlist],
+    )
+    baseline = "initialized" if not previous else "advanced"
+    console.print(
+        f"Deduplicated shortlist: {count} records written to {paths['deduplicated_shortlist']}; "
+        f"previous-combined baseline {baseline}."
+    )
 
 
 def _load_or_exit(shortlist_size: int | None = None):

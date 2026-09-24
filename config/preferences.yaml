@@ -165,9 +165,27 @@ location:
     - гибрид
 
 blockers:
+  permanent_company_exclusions:
+    - Bank of Georgia
   temporary_company_exclusions:
     - company: Andersen
       until: 2026-11-08
+    - company: Reiz tech
+      until: 2026-11-06
+    - company: Specific-Group
+      until: 2026-11-06
+    - company: Keepgo
+      until: 2026-11-06
+    - company: Dotmatics
+      until: 2026-11-06
+    - company: Mad Brains
+      until: 2026-11-06
+    - company: Selecty
+      until: 2026-11-06
+    - company: Sibedge
+      until: 2026-11-06
+    - company: Научсофт
+      until: 2026-11-06
   developer_titles:
     - developer
     - engineer
@@ -250,6 +268,8 @@ role_relevance:
     - интеграционный аналитик
     - аналитик интеграций
   irrelevant_title_keywords:
+    - 1C
+    - 1С
     - software engineer
     - software developer
     - frontend
@@ -332,20 +352,9 @@ scoring:
         - jira administration
         - confluence administration
         - atlassian administration
-        - workflows
-        - schemes
-        - permissions
-        - roles
         - custom fields
-        - automation
-        - user management
-        - migrations
-        - integrations
-        - spaces
-        - access control
-        - system configuration
     jira_user:
-      weight: 20
+      weight: 25
       keywords:
         - jira
         - confluence
@@ -379,9 +388,18 @@ scoring:
       keywords:
         - systems integrations
         - system integration
-        - inter-system interaction
-        - cross-functional technical analysis
-        - liaison between business and development
+        - system interaction
+        - technical analysis
+        - between business and development
+        - workflows
+        - schemes
+        - permissions
+        - roles
+        - access control
+        - system configuration
+        - user management
+        - migrations
+        - integrations
     documentation:
       weight: 15
       keywords:
@@ -406,6 +424,7 @@ scoring:
         - tableau
         - power bi
         - data analysis
+        - automation
     domain:
       weight: 10
       keywords:
@@ -416,13 +435,18 @@ scoring:
         - enterprise internal systems
         - document-management systems
     ai:
-      weight: 10
+      weight: 20
       keywords:
         - ai
         - llm
         - generative ai
         - ai-assisted documentation
         - ai productivity
+        - coding agents
+        - chatgpt
+        - codex
+        - claude
+        - vibecoding
     api:
       weight: 5
       keywords:
@@ -465,12 +489,15 @@ outputs:
   raw_file: headhunter_raw.json
   normalized_file: jobs_normalized.json
   csv_file: jobs.csv
-  shortlist_file: shortlist.md
+  headhunter_shortlist_file: shortlist_hh.md
+  linkedin_shortlist_file: shortlist_li.md
   blocked_file: blocked_jobs.md
   summary_file: run_summary.json
   combined_json_file: combined_jobs.json
   combined_csv_file: combined_jobs.csv
   combined_shortlist_file: combined_shortlist.md
+  deduplicated_shortlist_file: deduplicated_shortlist.md
+  previous_combined_shortlist_file: previous_combined_shortlist.json
   source_status_file: source_status.json
   manual_imports_file: manual_imports.json
   email_candidates_file: email_candidates.json

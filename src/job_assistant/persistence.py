@@ -6,9 +6,11 @@ from .config import Preferences
 from .deduplicate import deduplicate_vacancies
 from .export import export_all
 from .filters import apply_filters
-from .models import BatchStats, RawRecord, with_raw_source
+from .linkedin_queue import linkedin_job_id
+from .models import BatchStats, NormalizedVacancy, RawRecord, with_raw_source
 from .normalize import normalize_records
 from .paths import output_paths
+from .recovered_state import apply_recovered_state
 from .scoring import score_vacancies
 from .utils import read_json
 
@@ -28,11 +30,13 @@ def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
     data = read_json(path, [])
     if not isinstance(data, list):
         return []
-    return [
+    tagged = [
         _with_source([item], "linkedin", "LinkedIn manual store")[0]
         for item in data
         if isinstance(item, dict) and _is_linkedin_raw(item)
     ]
+    received_at_by_job_id = _linkedin_received_at_by_job_id(preferences)
+    return [_with_linkedin_received_at(item, received_at_by_job_id) for item in tagged]
 
 
 def read_telegram_raw(preferences: Preferences) -> list[RawRecord]:
@@ -46,6 +50,16 @@ def read_telegram_raw(preferences: Preferences) -> list[RawRecord]:
 def rebuild_from_authoritative_sources(
     preferences: Preferences, stats: BatchStats | None = None, headhunter_raw: list[RawRecord] | None = None
 ) -> dict[str, Any]:
+    hh_raw, vacancies, duplicates = prepare_authoritative_vacancies(preferences, headhunter_raw)
+    run_stats = stats or BatchStats()
+    run_stats.duplicates_merged = duplicates
+    return export_all(hh_raw, vacancies, preferences, run_stats, preferences.all_queries)
+
+
+def prepare_authoritative_vacancies(
+    preferences: Preferences, headhunter_raw: list[RawRecord] | None = None
+) -> tuple[list[RawRecord], list[NormalizedVacancy], int]:
+    """Run the shared pipeline without exporting its derived outputs."""
     source_raw = read_headhunter_raw(preferences) if headhunter_raw is None else headhunter_raw
     hh_raw = _dedupe_headhunter_raw(_with_source(source_raw, "headhunter", "HeadHunter input"))
     linkedin_raw = read_linkedin_manual_raw(preferences)
@@ -53,10 +67,9 @@ def rebuild_from_authoritative_sources(
     all_raw = [*hh_raw, *linkedin_raw, *telegram_raw]
     vacancies = normalize_records(all_raw, preferences)
     vacancies, duplicates = deduplicate_vacancies(vacancies)
-    run_stats = stats or BatchStats()
-    run_stats.duplicates_merged = duplicates
+    apply_recovered_state(vacancies, preferences)
     vacancies = score_vacancies(apply_filters(vacancies, preferences), preferences)
-    return export_all(hh_raw, vacancies, preferences, run_stats, preferences.all_queries)
+    return hh_raw, vacancies, duplicates
 
 
 def _dedupe_headhunter_raw(raw_records: list[RawRecord]) -> list[RawRecord]:
@@ -85,6 +98,40 @@ def _is_linkedin_raw(item: dict[str, Any]) -> bool:
     if record.get("__source") == "manual":
         return record.get("manual_source") == "linkedin"
     return source is None
+
+
+def _linkedin_received_at_by_job_id(preferences: Preferences) -> dict[str, str]:
+    path = output_paths(preferences)["email_candidates"]
+    if not path.exists():
+        return {}
+    candidates = read_json(path, [])
+    if not isinstance(candidates, list):
+        return {}
+    return {
+        str(item["external_id"]): item["received_at"]
+        for item in candidates
+        if isinstance(item, dict)
+        and item.get("source") == "linkedin"
+        and item.get("external_id") is not None
+        and isinstance(item.get("received_at"), str)
+        and item["received_at"].strip()
+    }
+
+
+def _with_linkedin_received_at(item: RawRecord, received_at_by_job_id: dict[str, str]) -> RawRecord:
+    is_wrapper = isinstance(item.get("record"), dict)
+    record = item["record"] if is_wrapper else item
+    if record.get("published_at") or record.get("received_at"):
+        return item
+    url = next(
+        (record.get(field) for field in ("page_url", "url", "canonical_url") if isinstance(record.get(field), str)),
+        None,
+    )
+    received_at = received_at_by_job_id.get(linkedin_job_id(url) or "")
+    if received_at is None:
+        return item
+    enriched = {**record, "received_at": received_at}
+    return {**item, "record": enriched} if is_wrapper else enriched
 
 
 def _with_source(raw_records: list[RawRecord], source: str, boundary: str) -> list[RawRecord]:

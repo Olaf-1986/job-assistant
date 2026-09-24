@@ -1524,5 +1524,4 @@ def test_shortlist_source_telegram_cli_writes_attributed_view(monkeypatch, tmp_p
 
     assert result.exit_code == 0, result.output
     assert "Telegram-only shortlist: 1" in result.output
-    assert "Business Analyst" in paths["shortlist"].read_text(encoding="utf-8")
     assert "Business Analyst" in paths["telegram_shortlist"].read_text(encoding="utf-8")

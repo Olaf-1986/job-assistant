@@ -470,6 +470,8 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
     blocker_text = "\n".join([page_title, _description_from_main_text(visible), selected, requirements_text or ""])
     if has_linkedin_no_longer_accepting_marker(blocker_text):
         initial_blocker_reasons.append(LINKEDIN_CLOSED_BLOCKER_REASON)
+    if record.get("linkedin_status") == "expired":
+        initial_blocker_reasons.append(LINKEDIN_CLOSED_BLOCKER_REASON)
     page_url = record.get("page_url") if isinstance(record.get("page_url"), str) else record.get("url")
     return _base_vacancy(
         "linkedin",
@@ -487,10 +489,14 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
         detected_language=detected_language,
         initial_blocker_reasons=initial_blocker_reasons,
         requirements_text=requirements_text,
+        publication_date=parse_datetime(record.get("published_at")) or parse_datetime(record.get("received_at")),
         source_metadata={
             "hostname": record.get("hostname"),
             "captured_at": record.get("captured_at"),
             "document_title": record.get("document_title"),
+            "received_at": record.get("received_at"),
+            "linkedin_status": record.get("linkedin_status"),
+            "linkedin_status_checked_at": record.get("linkedin_status_checked_at"),
         },
     )
 

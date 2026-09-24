@@ -153,6 +153,7 @@ class BlockersConfig(BaseModel):
     support_titles: list[str] = Field(default_factory=list)
     non_blocking_work_auth_countries: list[str] = Field(default_factory=list)
     work_auth_patterns: list[str] = Field(default_factory=list)
+    permanent_company_exclusions: list[str] = Field(default_factory=list)
     temporary_company_exclusions: list[TemporaryCompanyExclusion] = Field(default_factory=list)
 
 
@@ -177,13 +178,16 @@ class OutputsConfig(BaseModel):
     raw_file: str
     normalized_file: str
     csv_file: str
-    shortlist_file: str
+    headhunter_shortlist_file: str = "shortlist_hh.md"
+    linkedin_shortlist_file: str = "shortlist_li.md"
     blocked_file: str
     role_review_file: str = "role_review.md"
     summary_file: str
     combined_json_file: str = "combined_jobs.json"
     combined_csv_file: str = "combined_jobs.csv"
     combined_shortlist_file: str = "combined_shortlist.md"
+    deduplicated_shortlist_file: str = "deduplicated_shortlist.md"
+    previous_combined_shortlist_file: str = "previous_combined_shortlist.json"
     source_status_file: str = "source_status.json"
     manual_imports_file: str = "manual_imports.json"
     email_candidates_file: str = "email_candidates.json"

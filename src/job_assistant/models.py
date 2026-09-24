@@ -47,6 +47,7 @@ class NormalizedVacancy(BaseModel):
     detected_city: str | None = None
     blocker: bool = False
     blocker_reasons: list[str] = Field(default_factory=list)
+    previously_exported: bool = False
     role_relevance_breakdown: list[str] = Field(default_factory=list)
     requires_manual_role_review: bool = False
     score: int = 0

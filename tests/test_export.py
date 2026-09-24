@@ -10,6 +10,7 @@ from job_assistant.export import (
     _markdown_title,
     _shortlist_markdown,
     export_all,
+    export_deduplicated_shortlist,
     sorted_shortlist,
 )
 from job_assistant.filters import apply_filters
@@ -53,6 +54,47 @@ def test_role_review_is_excluded_from_shortlist_and_exported_separately(tmp_path
     assert sorted_shortlist(vacancies, 50) == []
     assert summary["role_review_count"] == 1
     assert "Operations Analyst" in (tmp_path / "role_review.md").read_text(encoding="utf-8")
+
+
+def test_export_all_writes_only_the_canonical_combined_shortlist(tmp_path):
+    preferences = load_preferences()
+    preferences = preferences.model_copy(
+        update={"outputs": preferences.outputs.model_copy(update={"directory": str(tmp_path)})}
+    )
+    vacancies = normalize_records([{"query": "feed", "record": BUSINESS_ANALYST}], preferences)
+
+    export_all([], vacancies, preferences, BatchStats(), ["feed"])
+
+    assert (tmp_path / preferences.outputs.combined_shortlist_file).exists()
+    assert not (tmp_path / "shortlist.md").exists()
+
+
+def test_deduplicated_shortlist_excludes_previous_identity_and_backfills(tmp_path):
+    preferences = load_preferences()
+    previous = normalize_records([{"query": "old", "record": BUSINESS_ANALYST}], preferences)
+    duplicate_record = {**BUSINESS_ANALYST, "jobTitle": "Updated Business Analyst"}
+    new_record = {
+        **BUSINESS_ANALYST,
+        "id": "999",
+        "url": "https://example.com/jobs/new-business-analyst",
+        "jobTitle": "New Business Analyst",
+        "jobDescription": "<p>New integration analysis role with APIs, SQL, and technical documentation.</p>",
+    }
+    current = normalize_records(
+        [
+            {"query": "current", "record": duplicate_record},
+            {"query": "current", "record": new_record},
+        ],
+        preferences,
+    )
+    path = tmp_path / "deduplicated_shortlist.md"
+
+    count = export_deduplicated_shortlist(current, previous, 10, path)
+
+    markdown = path.read_text(encoding="utf-8")
+    assert count == 1
+    assert "New Business Analyst" in markdown
+    assert "Updated Business Analyst" not in markdown
 
 
 @pytest.mark.parametrize("prefix", ["=", "+", "-", "@", "\t", "\r"])

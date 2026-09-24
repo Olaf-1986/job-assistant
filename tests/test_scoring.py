@@ -26,9 +26,9 @@ def test_jira_admin_scores_40_not_jira_user_double_count():
     assert not any("+20 Jira" in line for line in vacancy.score_breakdown)
 
 
-def test_jira_user_scores_20():
+def test_jira_user_scores_25():
     vacancy = scored(JIRA_USER)
-    assert any("+20 Jira" in line for line in vacancy.score_breakdown)
+    assert any("+25 Jira" in line for line in vacancy.score_breakdown)
 
 
 def test_jira_admin_requires_atlassian_platform_context():

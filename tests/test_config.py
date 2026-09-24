@@ -35,6 +35,24 @@ def test_config_includes_temporary_andersen_exclusion():
     assert exclusion.until.isoformat() == "2026-11-08"
 
 
+def test_config_includes_requested_company_exclusions():
+    blockers = load_preferences().blockers
+
+    assert blockers.permanent_company_exclusions == ["Bank of Georgia"]
+    temporary = {exclusion.company: exclusion.until.isoformat() for exclusion in blockers.temporary_company_exclusions}
+    assert temporary == {
+        "Andersen": "2026-11-08",
+        "Reiz tech": "2026-11-06",
+        "Specific-Group": "2026-11-06",
+        "Keepgo": "2026-11-06",
+        "Dotmatics": "2026-11-06",
+        "Mad Brains": "2026-11-06",
+        "Selecty": "2026-11-06",
+        "Sibedge": "2026-11-06",
+        "Научсофт": "2026-11-06",
+    }
+
+
 def test_config_validation_rejects_invalid_yaml(tmp_path: Path):
     path = tmp_path / "preferences.yaml"
     path.write_text("run: []", encoding="utf-8")

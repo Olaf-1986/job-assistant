@@ -6,7 +6,7 @@ from datetime import date
 from .config import Preferences
 from .language import explicit_unsupported_language_requirements
 from .models import NormalizedVacancy
-from .utils import lower_text
+from .utils import lower_text, slugify_text
 
 COUNTRY_RE = re.compile(
     r"(?:citizen(?:ship)?(?: of)?|citizen of|authorized to work in|work authorization in|right to work in)"
@@ -16,6 +16,7 @@ COUNTRY_RE = re.compile(
 ADJACENT_ROLE_TITLES = ("analyst", "administrator", "consultant", "specialist")
 EXPLICIT_IRRELEVANT_TITLES = ("nurse", "physician", "doctor", "surgeon", "medical assistant")
 MAX_MONTHLY_SALARY_RUB = 200_000
+MIN_OPEN_ENDED_MONTHLY_SALARY_RUB = 150_000
 RUB_PER_CURRENCY_UNIT = {
     "RUB": 1,
     "RUR": 1,
@@ -131,12 +132,12 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
     )
     title = (vacancy.title or "").lower()
     reasons: list[str] = [*vacancy.blocker_reasons]
-    temporary_company_exclusion = _active_company_exclusion(vacancy.company, preferences)
-    if temporary_company_exclusion:
-        reasons.append(temporary_company_exclusion)
-    low_max_salary = _low_max_salary_reason(vacancy)
-    if low_max_salary:
-        reasons.append(low_max_salary)
+    company_exclusion = _active_company_exclusion(vacancy.company, preferences)
+    if company_exclusion:
+        reasons.append(company_exclusion)
+    low_salary = _low_salary_reason(vacancy)
+    if low_salary:
+        reasons.append(low_salary)
     developer_title = any(contains_phrase(title, term) for term in preferences.blockers.developer_titles)
     developer_title_allowed = any(
         contains_phrase(title, term)
@@ -175,31 +176,46 @@ def _active_company_exclusion(
 ) -> str | None:
     if not company:
         return None
+    for excluded_company in preferences.blockers.permanent_company_exclusions:
+        if _company_matches(company, excluded_company):
+            return f"company permanently excluded: {excluded_company}"
     current_date = today or date.today()
     for exclusion in preferences.blockers.temporary_company_exclusions:
-        if current_date <= exclusion.until and contains_phrase(company, exclusion.company):
+        if current_date <= exclusion.until and _company_matches(company, exclusion.company):
             return f"company temporarily excluded through {exclusion.until.isoformat()}: {exclusion.company}"
     return None
 
 
-def _low_max_salary_reason(vacancy: NormalizedVacancy) -> str | None:
-    if vacancy.salary_max is None or not vacancy.salary_currency:
+def _company_matches(company: str, excluded_company: str) -> bool:
+    normalized_company = " ".join(slugify_text(company).split())
+    normalized_exclusion = " ".join(slugify_text(excluded_company).split())
+    return contains_phrase(normalized_company, normalized_exclusion)
+
+
+def _low_salary_reason(vacancy: NormalizedVacancy) -> str | None:
+    if not vacancy.salary_currency:
         return None
     currency = vacancy.salary_currency.strip().upper()
     rub_rate = RUB_PER_CURRENCY_UNIT.get(currency)
     if rub_rate is None:
         return None
     period = (vacancy.salary_period or "").strip().lower()
-    if period in {"year", "annual", "annually"}:
-        monthly_max = vacancy.salary_max / 12
-    elif period in {"", "month", "monthly"}:
-        monthly_max = vacancy.salary_max
-    else:
+    divisor = 12 if period in {"year", "annual", "annually"} else 1
+    if period not in {"", "month", "monthly", "year", "annual", "annually"}:
         return None
-    monthly_max_rub = monthly_max * rub_rate
-    if monthly_max_rub > MAX_MONTHLY_SALARY_RUB:
+
+    if vacancy.salary_max is not None:
+        monthly_max_rub = vacancy.salary_max / divisor * rub_rate
+        if monthly_max_rub <= MAX_MONTHLY_SALARY_RUB:
+            return f"maximum monthly salary is at or below {MAX_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
         return None
-    return f"maximum monthly salary is at or below {MAX_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
+
+    if vacancy.salary_min is None:
+        return None
+    monthly_min_rub = vacancy.salary_min / divisor * rub_rate
+    if monthly_min_rub >= MIN_OPEN_ENDED_MONTHLY_SALARY_RUB:
+        return None
+    return f"minimum monthly salary without upper bound is below {MIN_OPEN_ENDED_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
 
 
 def _foreign_requirement_country(text: str, preferences: Preferences) -> str | None:

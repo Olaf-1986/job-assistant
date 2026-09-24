@@ -159,6 +159,41 @@ def manual_import_has_linkedin_job(manual_imports_path: Path, job_id: str | None
     return False
 
 
+def mark_linkedin_manual_expired(preferences: Preferences, job_id: str, *, checked_at: str | None = None) -> bool:
+    """Persist an observed closed status on the authoritative LinkedIn capture."""
+    path = output_paths(preferences)["manual_imports"]
+    if not path.exists():
+        return False
+    data = read_json(path, [])
+    if not isinstance(data, list):
+        return False
+    changed = False
+    checked_at = checked_at or datetime.now(UTC).isoformat()
+    updated: list[Any] = []
+    for item in data:
+        if not isinstance(item, dict):
+            updated.append(item)
+            continue
+        is_wrapper = isinstance(item.get("record"), dict)
+        record = item["record"] if is_wrapper else item
+        urls = [
+            record.get(field) for field in ("page_url", "url", "canonical_url") if isinstance(record.get(field), str)
+        ]
+        if not any(linkedin_job_id(url) == job_id for url in urls):
+            updated.append(item)
+            continue
+        enriched = {
+            **record,
+            "linkedin_status": "expired",
+            "linkedin_status_checked_at": checked_at,
+        }
+        updated.append({**item, "record": enriched} if is_wrapper else enriched)
+        changed = True
+    if changed:
+        write_json(path, updated)
+    return changed
+
+
 def open_url_default_browser(url: str) -> tuple[bool, str | None]:
     try:
         if _running_under_wsl():

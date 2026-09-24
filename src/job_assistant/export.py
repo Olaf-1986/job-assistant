@@ -4,11 +4,12 @@ import csv
 import html
 import re
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .config import Preferences
+from .deduplicate import vacancies_match
 from .errors import sanitize_error
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
@@ -20,6 +21,7 @@ def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[Norm
         vacancy
         for vacancy in vacancies
         if not vacancy.blocker
+        and not vacancy.previously_exported
         and not vacancy.requires_manual_location_review
         and not vacancy.requires_manual_role_review
     ]
@@ -30,10 +32,29 @@ def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[Norm
     )[:size]
 
 
-def export_source_shortlist(vacancies: list[NormalizedVacancy], source: str, size: int, path: Path) -> int:
+def export_source_shortlist(
+    vacancies: list[NormalizedVacancy],
+    source: str,
+    size: int,
+    path: Path,
+    *,
+    published_since: datetime | None = None,
+) -> int:
     """Write a source-attributed view while preserving the shared shortlist rules."""
     attributed = [vacancy for vacancy in vacancies if source == vacancy.source or source in vacancy.sources]
+    if published_since is not None:
+        attributed = [
+            vacancy for vacancy in attributed if _published_on_or_after(vacancy.publication_date, published_since)
+        ]
     return export_shortlist(attributed, size, path)
+
+
+def _published_on_or_after(publication_date: datetime | None, cutoff: datetime) -> bool:
+    if publication_date is None:
+        return True
+    comparable_date = publication_date.replace(tzinfo=UTC) if publication_date.tzinfo is None else publication_date
+    comparable_cutoff = cutoff.replace(tzinfo=UTC) if cutoff.tzinfo is None else cutoff
+    return comparable_date >= comparable_cutoff
 
 
 def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path) -> int:
@@ -42,6 +63,21 @@ def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path) 
     ensure_directory(path.parent)
     path.write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     return len(shortlist)
+
+
+def export_deduplicated_shortlist(
+    vacancies: list[NormalizedVacancy],
+    previous_shortlist: list[NormalizedVacancy],
+    size: int,
+    path: Path,
+) -> int:
+    """Write the highest-ranked vacancies absent from the previous combined shortlist."""
+    new_vacancies = [
+        vacancy
+        for vacancy in vacancies
+        if not any(vacancies_match(vacancy, previous) for previous in previous_shortlist)
+    ]
+    return export_shortlist(new_vacancies, size, path)
 
 
 def export_channel_shortlists(
@@ -90,14 +126,17 @@ def export_all(
         reverse=True,
     )
     eligible_count = sum(
-        not v.blocker and not v.requires_manual_location_review and not v.requires_manual_role_review for v in vacancies
+        not v.blocker
+        and not v.previously_exported
+        and not v.requires_manual_location_review
+        and not v.requires_manual_role_review
+        for v in vacancies
     )
     write_json(paths["raw"], raw_records)
     write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
     _write_csv(paths["csv"], vacancies)
     _write_csv(paths["combined_csv"], vacancies)
-    paths["shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["combined_shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
     paths["blocked"].write_text(_blocked_markdown(blocked), encoding="utf-8")
     paths["role_review"].write_text(_role_review_markdown(role_review), encoding="utf-8")
@@ -111,6 +150,7 @@ def export_all(
         "duplicates_merged": stats.duplicates_merged,
         "blocked_count": len(blocked),
         "eligible_count": eligible_count,
+        "previously_exported_count": sum(v.previously_exported for v in vacancies),
         "role_review_count": len(role_review),
         "shortlist_count": len(shortlist),
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
@@ -124,6 +164,7 @@ def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
     fields = [
         "score",
         "blocker",
+        "previously_exported",
         "requires_manual_role_review",
         "role_relevance_breakdown",
         "title",

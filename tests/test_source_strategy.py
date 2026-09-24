@@ -4,7 +4,7 @@ import asyncio
 import imaplib
 import socket
 import ssl
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import fastapi.routing
@@ -65,11 +65,13 @@ def test_quick_fetch_all_composes_explicit_source_workflows():
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
-    quick_fetch(RecordingContext(), QuickWindow.three_days, QuickSource.all, 25, False, 7)
+    quick_fetch(RecordingContext(), QuickWindow.three_days, QuickSource.all, 25, False)
 
     assert [callback for callback, _ in calls] == [fetch_all, linkedin_fetch, telegram_fetch, shortlist]
     assert calls[0][1]["last"].days == 3
-    assert calls[1][1]["limit"] == 7
+    assert calls[1][1]["limit"] is None
+    assert calls[1][1]["recheck_shortlist"] is True
+    assert calls[1][1]["since_days"] == 3
     assert calls[2][1]["since_days"] == 3
     assert all(kwargs.get("shortlist_size", kwargs.get("size")) == 25 for _, kwargs in calls)
     assert calls[-1][1]["source"] is None
@@ -82,7 +84,7 @@ def test_quick_fetch_hh_does_not_run_email_or_manual_sources():
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
-    quick_fetch(RecordingContext(), QuickWindow.one_month, QuickSource.headhunter, 10, True, 5)
+    quick_fetch(RecordingContext(), QuickWindow.one_month, QuickSource.headhunter, 10, True)
 
     assert [callback for callback, _ in calls] == [fetch, shortlist]
     assert calls[0][1]["source"] == "headhunter"
@@ -99,10 +101,13 @@ def test_quick_fetch_li_builds_linkedin_only_shortlist():
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
-    quick_fetch(RecordingContext(), QuickWindow.one_week, QuickSource.linkedin, 20, False, 5)
+    quick_fetch(RecordingContext(), QuickWindow.one_week, QuickSource.linkedin, 20, False)
 
     assert [callback for callback, _ in calls] == [linkedin_fetch, shortlist]
-    assert calls[-1][1] == {"source": "linkedin", "size": 20}
+    assert calls[0][1]["limit"] is None
+    assert calls[0][1]["recheck_shortlist"] is True
+    assert calls[0][1]["since_days"] == 7
+    assert calls[-1][1] == {"source": "linkedin", "size": 20, "since_days": 7}
 
 
 def test_shortlist_size_override_is_temporary(monkeypatch, tmp_path):
@@ -121,6 +126,39 @@ def test_shortlist_size_override_is_temporary(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert observed_sizes == [17]
     assert preferences.run.shortlist_size != 17
+
+
+def test_linkedin_received_at_is_used_as_publication_fallback(tmp_path):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    write_json(
+        paths["manual_imports"],
+        [
+            {
+                "page_url": "https://www.linkedin.com/jobs/view/4452778909",
+                "vacancy_title": "Business Analyst",
+                "visible_text": "Business Analyst requirements and stakeholder management. " * 10,
+                "source_label": "linkedin",
+            }
+        ],
+    )
+    write_json(
+        paths["email_candidates"],
+        [
+            {
+                "source": "linkedin",
+                "external_id": "4452778909",
+                "canonical_url": "https://www.linkedin.com/jobs/view/4452778909",
+                "received_at": "2026-08-14T05:51:46+00:00",
+                "status": "processed",
+            }
+        ],
+    )
+
+    raw = read_linkedin_manual_raw(preferences)
+    vacancies = normalize_records(raw, preferences)
+
+    assert vacancies[0].publication_date == datetime(2026, 8, 14, 5, 51, 46, tzinfo=UTC)
 
 
 def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
@@ -148,9 +186,113 @@ def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
     result = runner.invoke(app, ["shortlist", "--source", "li", "-n", "20"])
 
     assert result.exit_code == 0, result.output
-    markdown = paths["shortlist"].read_text(encoding="utf-8")
+    markdown = paths["linkedin_shortlist"].read_text(encoding="utf-8")
     assert "LinkedIn Analyst" in markdown
     assert "HH Analyst" not in markdown
+    assert not (paths["dir"] / "shortlist.md").exists()
+
+
+def test_headhunter_source_shortlist_has_a_dedicated_output(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    vacancies = [
+        NormalizedVacancy(
+            source="headhunter",
+            sources=["headhunter"],
+            title="HH Analyst",
+            normalized_title="hh analyst",
+            score=100,
+            fetched_at=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+    ]
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+
+    def fake_rebuild(*args, **kwargs):
+        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
+        return {}
+
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
+
+    result = runner.invoke(app, ["shortlist", "--source", "hh"])
+
+    assert result.exit_code == 0, result.output
+    assert "HH Analyst" in paths["headhunter_shortlist"].read_text(encoding="utf-8")
+    assert not paths["linkedin_shortlist"].exists()
+
+
+def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+
+    def vacancy(title: str, source_id: str) -> NormalizedVacancy:
+        return NormalizedVacancy(
+            source="headhunter",
+            sources=["headhunter"],
+            source_id=source_id,
+            title=title,
+            normalized_title=title.casefold(),
+            score=100,
+            fetched_at=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+
+    first = vacancy("First Analyst", "1")
+    second = vacancy("Second Analyst", "2")
+    batches = iter([[first], [first, second]])
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+    monkeypatch.setattr(
+        "job_assistant.cli.prepare_authoritative_vacancies",
+        lambda *args, **kwargs: ([], next(batches), 0),
+    )
+
+    initial = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
+    updated = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
+
+    assert initial.exit_code == 0, initial.output
+    assert "baseline initialized" in initial.output
+    assert updated.exit_code == 0, updated.output
+    assert "baseline advanced" in updated.output
+    markdown = paths["deduplicated_shortlist"].read_text(encoding="utf-8")
+    assert "Second Analyst" in markdown
+    assert "First Analyst" not in markdown
+    baseline = read_json(paths["previous_combined_shortlist"])
+    assert [item["source_id"] for item in baseline] == ["1", "2"]
+
+
+def test_linkedin_source_shortlist_excludes_records_older_than_window(monkeypatch, tmp_path):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    now = datetime.now(UTC)
+    vacancies = [
+        NormalizedVacancy(
+            source="linkedin",
+            sources=["linkedin"],
+            title=title,
+            normalized_title=title.lower(),
+            publication_date=publication_date,
+            score=100,
+            fetched_at=now,
+        )
+        for title, publication_date in [
+            ("Old LinkedIn Analyst", now - timedelta(days=8)),
+            ("Fresh LinkedIn Analyst", now - timedelta(days=2)),
+            ("Undated LinkedIn Analyst", None),
+        ]
+    ]
+    monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
+
+    def fake_rebuild(*args, **kwargs):
+        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
+        return {}
+
+    monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
+
+    result = runner.invoke(app, ["shortlist", "--source", "li", "--since-days", "7", "-n", "20"])
+
+    assert result.exit_code == 0, result.output
+    markdown = paths["linkedin_shortlist"].read_text(encoding="utf-8")
+    assert "Old LinkedIn Analyst" not in markdown
+    assert "Fresh LinkedIn Analyst" in markdown
+    assert "Undated LinkedIn Analyst" in markdown
 
 
 @pytest.fixture(autouse=True)
