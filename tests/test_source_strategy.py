@@ -35,8 +35,10 @@ from job_assistant.normalize import normalize_records
 from job_assistant.paths import output_paths
 from job_assistant.persistence import read_headhunter_raw, read_linkedin_manual_raw, rebuild_from_authoritative_sources
 from job_assistant.sources import load_statuses
+from job_assistant.telegram_parser import parse_telegram_message
 from job_assistant.utils import read_json, write_json
 from tests.fixtures.headhunter_records import HEADHUNTER_RESPONSE
+from tests.fixtures.telegram_messages import ORDINARY_VACANCY
 
 runner = CliRunner()
 
@@ -245,12 +247,16 @@ def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(mon
     )
 
     initial = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
-    updated = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
 
     assert initial.exit_code == 0, initial.output
-    assert "baseline initialized" in initial.output
+    assert "baseline initialized" in " ".join(initial.output.split())
+    initial_baseline = read_json(paths["previous_combined_shortlist"])
+    assert [item["source_id"] for item in initial_baseline] == ["1"]
+
+    updated = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
+
     assert updated.exit_code == 0, updated.output
-    assert "baseline advanced" in updated.output
+    assert "baseline advanced" in " ".join(updated.output.split())
     markdown = paths["deduplicated_shortlist"].read_text(encoding="utf-8")
     assert "Second Analyst" in markdown
     assert "First Analyst" not in markdown
@@ -1165,8 +1171,11 @@ def test_failed_headhunter_run_does_not_replace_valid_linkedin_data(tmp_path):
     assert read_json(combined_path) == before
 
 
-def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, tmp_path):
+@pytest.mark.parametrize("command", [["fetch", "--source", "headhunter", "--force"], ["fetch-all", "--force"]])
+@pytest.mark.parametrize("partial_response", [False, True])
+def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, tmp_path, command, partial_response):
     preferences = temp_preferences(tmp_path)
+    preferences.sources.email.enabled = False
     raw_path = preferences.outputs.output_dir() / preferences.outputs.raw_file
     manual_path = preferences.outputs.output_dir() / preferences.outputs.manual_imports_file
     combined_path = preferences.outputs.output_dir() / preferences.outputs.combined_json_file
@@ -1191,26 +1200,32 @@ def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, t
             }
         ],
     )
+    telegram_path = output_paths(preferences)["telegram_raw"]
+    telegram_record = parse_telegram_message(ORDINARY_VACANCY, preferences).target_records[0]
+    write_json(telegram_path, [{"query": "telegram:test", "record": telegram_record}])
     rebuild_from_authoritative_sources(preferences)
     before = read_json(combined_path)
+    before_manual = read_json(manual_path)
+    before_telegram = read_json(telegram_path)
 
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
 
     def failed_fetch(self):
         from job_assistant.models import BatchStats
 
-        return [], BatchStats(errors=["mock_headhunter_failure"])
+        partial = [{"query": "partial", "record": {**HEADHUNTER_RESPONSE["items"][0], "id": "partial-new"}}]
+        return partial if partial_response else [], BatchStats(errors=["mock_headhunter_failure"])
 
     monkeypatch.setattr("job_assistant.connectors.headhunter.HeadHunterConnector.fetch", failed_fetch)
-    result = runner.invoke(
-        __import__("job_assistant.cli", fromlist=["app"]).app, ["fetch", "--source", "headhunter", "--force"]
-    )
+    result = runner.invoke(app, command)
 
     assert result.exit_code == 0, result.output
     after = read_json(combined_path)
     assert [(item["source"], item["title"], item.get("company")) for item in after] == [
         (item["source"], item["title"], item.get("company")) for item in before
     ]
+    assert read_json(manual_path) == before_manual
+    assert read_json(telegram_path) == before_telegram
     assert read_json(raw_path) == [
         {
             "query": "Business Analyst",
@@ -1218,6 +1233,62 @@ def test_failed_headhunter_refresh_preserves_authoritative_stores(monkeypatch, t
             "record": {"__source": "headhunter", **HEADHUNTER_RESPONSE["items"][0]},
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "status", "reason"),
+    [
+        (
+            "Requirements analysis and stakeholder management for remote business analysts.",
+            "expired",
+            "LinkedIn vacancy is no longer accepting applications",
+        ),
+        (
+            "Exigences, expérience, responsabilités et compétences. " * 10,
+            "captured",
+            "unsupported LinkedIn job-content language: fr",
+        ),
+    ],
+)
+def test_shared_pipeline_preserves_linkedin_blocker_after_cross_source_merge(tmp_path, text, status, reason):
+    preferences = temp_preferences(tmp_path)
+    paths = output_paths(preferences)
+    shared_url = "https://www.linkedin.com/jobs/view/9001"
+    write_json(
+        paths["raw"],
+        [{"query": "test", "record": {**HEADHUNTER_RESPONSE["items"][0], "alternate_url": shared_url}}],
+    )
+    write_json(
+        paths["manual_imports"],
+        [
+            {
+                "query": "test",
+                "record": {
+                    "__source": "linkedin",
+                    "page_url": shared_url,
+                    "vacancy_title": "Business Analyst",
+                    "company": "Acme",
+                    "visible_text": text,
+                    "linkedin_status": status,
+                },
+            }
+        ],
+    )
+
+    for _ in range(2):
+        summary = rebuild_from_authoritative_sources(preferences)
+        combined = read_json(paths["combined_json"])
+
+        assert len(combined) == 1
+        assert combined[0]["sources"] == ["headhunter", "linkedin"]
+        assert combined[0]["blocker"] is True
+        assert reason in combined[0]["blocker_reasons"]
+        assert text.strip() in combined[0]["description_text"]
+        assert summary["duplicates_merged"] == 1
+        assert summary["blocked_count"] == 1
+        assert summary["shortlist_count"] == 0
+        assert reason in paths["blocked"].read_text(encoding="utf-8")
+        assert shared_url not in paths["combined_shortlist"].read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

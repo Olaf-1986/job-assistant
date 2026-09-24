@@ -193,7 +193,8 @@ def fetch_all(
         if skipped:
             mark_status(preferences, _source_key(source), skipped, 0, 0, skipped)
             continue
-        all_raw.extend(raw_records)
+        if not stats.errors:
+            all_raw.extend(raw_records)
         mark_status(
             preferences,
             _source_key(source),

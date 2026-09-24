@@ -54,6 +54,8 @@ def _keys(vacancy: NormalizedVacancy) -> list[str]:
             keys.append(f"url:{url}")
     if vacancy.source_id:
         keys.append(f"id:{vacancy.source}:{vacancy.source_id}")
+    for source, ids in vacancy.source_ids.items():
+        keys.extend(f"id:{source}:{source_id}" for source_id in ids if source_id)
     title = slugify_text(vacancy.title)
     company = slugify_text(vacancy.company)
     location = slugify_text(", ".join(vacancy.location_restrictions))
@@ -93,6 +95,8 @@ def _near_identical_company_title_description(left: NormalizedVacancy, right: No
 
 
 def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:
+    left.blocker = left.blocker or right.blocker
+    left.blocker_reasons = sorted(set(left.blocker_reasons + right.blocker_reasons))
     if (
         right.description_text
         and left.description_text
