@@ -257,6 +257,29 @@ def test_other_explicit_language_requirements_are_detected(text, language):
     assert explicit_unsupported_language_requirements(text) == [language]
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Fluent in German, both written and spoken",
+        "Fluent German, both written and spoken",
+        "Proficient in German, both written and spoken",
+        "Native German speaker",
+        "Fluent in English and German, both written and spoken",
+        "Fluent in\nGerman, both written and spoken",
+        "Fluent\tin\tGerman, both written and spoken",
+        "Fließend Deutsch in Wort und Schrift",
+        "Fliessend Deutsch in Wort und Schrift",
+    ],
+)
+def test_fluency_requirement_does_not_need_extra_whitespace(text):
+    assert explicit_unsupported_language_requirements(text) == ["German"]
+
+
+@pytest.mark.parametrize("language", ["English", "Russian", "Spanish"])
+def test_supported_fluency_requirements_remain_allowed(language):
+    assert explicit_unsupported_language_requirements(f"Fluent in {language}, both written and spoken") == []
+
+
 def test_language_mentions_without_a_demand_do_not_block():
     text = (
         "Experience working with German clients in a multilingual European environment. "

@@ -133,10 +133,11 @@ queries:
     - Продуктовый менеджер
 
 languages:
+  # Description-language allowlist; other and unidentified languages are hard blockers.
   accepted:
     - en
     - ru
-    - de
+    - es
   russian_penalty: 0
 
 location:

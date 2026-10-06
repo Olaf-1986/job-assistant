@@ -316,6 +316,15 @@ The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.
 - Explicit Russia-only work-location restrictions are blocked.
 - Russian citizenship by itself is not blocked.
 - Explicit requirements for languages other than Russian, English, or Spanish are blocked.
+  This includes fluency requirements such as “Fluent in German, both written and spoken,” even when the
+  description itself is English. Requirements in either the full description or its requirements section are checked.
+- Vacancy descriptions must be identified as Russian, English, or Spanish (`languages.accepted: [en, ru, es]`).
+  This is a hard filter for every source, reapplied after deduplication. Unsupported, empty, or unidentified
+  descriptions are excluded; an English title, requirements excerpt, or declared language cannot override the body.
+  LinkedIn language checks isolate the description from page controls and the language-selector footer; captures
+  containing only the job header and promotional interface text are excluded as unidentified descriptions.
+  Detection is local and rule-based, including Polish with or without accents, with no network or AI/ML service.
+  Ambiguous descriptions are conservatively excluded, so some valid descriptions may need review.
 - A known maximum monthly salary of `200,000 RUB` or less is blocked. The comparison uses `1 USD = 87 RUB` and
   `1 GEL (lari) = 33 RUB`; annual amounts are divided by 12. When no maximum is provided, a known minimum below
   `150,000 RUB` monthly equivalent is also blocked. Missing salary bounds and unsupported currencies remain eligible.

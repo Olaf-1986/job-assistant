@@ -1,36 +1,89 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections import Counter
 
-CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
-GERMAN_RE = re.compile(
-    r"\b(und|oder|mit|für|nicht|deutsch|deutschkenntnisse|kenntnisse|erfahrung|aufgaben|anforderungen|"
-    r"bewerbung|kunden|unternehmen|entwicklung|m/w/d)\b|[äöüß]",
-    re.IGNORECASE,
-)
-LATIN_RE = re.compile(r"[A-Za-z]")
-LINKEDIN_ENGLISH_MARKERS = (
-    "requirements",
-    "responsibilities",
-    "experience",
-    "skills",
-    "required",
-    "analysis",
-    "role",
-    "position",
-    "with",
-    "and",
-    "the",
-    "your",
-)
-LINKEDIN_OTHER_LANGUAGE_MARKERS = {
-    "es": ("requisitos", "experiencia", "responsabilidades", "habilidades", "trabajo", "empresa"),
-    "fr": ("exigences", "expérience", "responsabilités", "compétences", "travail", "entreprise"),
-    "it": ("requisiti", "esperienza", "responsabilità", "competenze", "lavoro", "azienda"),
-    "pt": ("requisitos", "experiência", "responsabilidades", "competências", "trabalho", "empresa"),
-    "nl": ("vereisten", "ervaring", "verantwoordelijkheden", "vaardigheden", "werk", "bedrijf"),
-    "pl": ("wymagania", "doświadczenie", "obowiązki", "umiejętności", "praca", "firma"),
+# Offline, deterministic evidence only. A missing match is unknown, never implicitly English.
+# Function words complement job vocabulary so English headings/technical terms cannot dominate
+# an otherwise unidentified description. Foreign-language evidence is checked independently.
+_ACCEPTED_WORDS = {
+    "en": frozenset(
+        (
+            "the and with for from your you our we are is be will have has this that to of in on as an a "
+            "at or by about who can their they it work working experience requirements required responsibilities "
+            "skills analysis analyze analyst business systems system role position team join looking knowledge "
+            "strong ability excellent ensure support development develop design build management manage "
+            "gathering stories acceptance criteria stakeholder stakeholders functional technical documentation "
+            "processes process integrations integration administration administer workflows permissions custom "
+            "fields configure configuration own maintain maintenance implement implementation collaborate "
+            "communication delivery context remote hybrid office international distributed worldwide "
+            "english user users use must including include based years salary benefits applications candidates "
+            "services engineering"
+        ).split()
+    ),
+    "ru": frozenset(
+        (
+            "и в на с по для из не мы вы это от к или у о а как до будет быть что работы работа "
+            "опыт требования обязанности условия знания знание навыки анализ аналитик системный бизнес "
+            "требований документация документации интеграции интеграций разработка разработки разработке "
+            "процессов процессы проектирование описание описания работаешь работать командой команда "
+            "команду компании компания ищем требуется удаленно удаленная удаленной всем миру "
+            "систем системами данных заказчиком пользователями взаимодействие ведение подготовка"
+        ).split()
+    ),
+    "es": frozenset(
+        (
+            "el la los las y de del para con en un una que por se su sus tu tus es al como "
+            "requisitos experiencia responsabilidades habilidades trabajo empresa equipo buscamos "
+            "conocimientos conocimiento analisis analista negocio negocios sistemas procesos requisitos "
+            "documentacion colaborar desarrollar desarrollo gestion comunicacion remoto remota "
+            "ofrecemos capacidad experiencia tecnico tecnica funcionales usuarios interesados "
+            "nuestro nuestra nuestros nuestras tienes ser hacer trabajar salario beneficios"
+        ).split()
+    ),
 }
+_OTHER_WORDS = {
+    "pl": "wymagania doswiadczenie obowiazki umiejetnosci praca firma oraz jest sie dla nas nasze "
+    "naszych twoje twoich zakres poszukujemy szukamy bedziesz bedzie oferujemy znajomosc "
+    "wspolpraca zespol zespolu stanowisko zatrudnienie wynagrodzenie ktory ktora ktore klienta",
+    "de": "und oder mit fur nicht deutsch deutschkenntnisse kenntnisse erfahrung aufgaben anforderungen "
+    "bewerbung kunden unternehmen entwicklung wir sie ihre unseren unser eine einen der die das",
+    "fr": "exigences responsabilites competences travail entreprise nous vous votre notre avec pour "
+    "recherchons equipe poste dans des les une du est sont missions connaissance francais",
+    "it": "requisiti esperienza responsabilita competenze lavoro azienda cerchiamo conoscenza "
+    "della delle degli siamo nostri nostra attivita candidato gestione nella sono lavorare",
+    "pt": "experiencia competencias trabalho nossa nossos voce voces uma habilidades buscamos "
+    "conhecimento conhecimentos trabalhar desenvolvimento gestao comunicacao requisitos",
+    "nl": "vereisten ervaring verantwoordelijkheden vaardigheden werk bedrijf wij zijn zoeken "
+    "jouw onze kennis het een voor van met deze functie bieden werkzaamheden",
+    "uk": "досвід вимоги обовязки навички знання робота шукаємо працювати команди розробка "
+    "взаємодія бізнесу аналіз та що для від які який",
+    "be": "вопыт патрабаванні абавязкі навыкі веды праца шукаем распрацоўка каманды бізнесу",
+    "bg": "изисквания отговорности умения опит търсим работа познания екип нашите вашите "
+    "разработка анализ бизнес процеси данни",
+    "cs": "pozadavky zkusenosti odpovednosti dovednosti prace hledame znalost nabizime spolecnost "
+    "nasich vasich spoluprace tvorba",
+    "sk": "poziadavky skusenosti zodpovednosti zrucnosti praca hladame znalost ponukame spolocnost",
+    "ro": "cerinte experienta responsabilitati abilitati lucru cautam cunostinte echipa pentru "
+    "dezvoltare companie suntem noastra",
+    "tr": "gereksinimler deneyim sorumluluklar beceriler sirket ariyoruz bilgi calisma gorevler "
+    "icin olarak olan ekip yonetimi",
+    "sv": "krav erfarenhet ansvar kunskaper foretag arbetsuppgifter soker vara din du och att inom",
+    "da": "krav erfaring ansvar faerdigheder virksomhed arbejdsopgaver soger vores dine og til",
+    "no": "krav erfaring ansvar ferdigheter selskap arbeidsoppgaver soker vare dine og til",
+    "fi": "vaatimukset kokemus vastuut taidot yritys etsimme tehtavat osaaminen tyo kanssa sinulla",
+    "hu": "kovetelmenyek tapasztalat felelossegek keszsegek vallalat keresunk ismerete feladatok munka",
+    "id": "persyaratan pengalaman tanggung jawab keterampilan pekerjaan perusahaan kami mencari "
+    "dengan untuk yang dan dalam kemampuan",
+}
+# Shared words (e.g. Spanish/Portuguese or Russian/Ukrainian) cannot establish a foreign language.
+_SUPPORTED_WORDS = frozenset().union(*_ACCEPTED_WORDS.values())
+_OTHER_WORDS = {code: frozenset(words.split()) - _SUPPORTED_WORDS for code, words in _OTHER_WORDS.items()}
+_POLISH_STEMS = re.compile(
+    r"(?:wymaga|doswiadcz|obowiazk|umiejetnos|znajomos|pracow|wspolprac|poszuk|zatrudni|"
+    r"wynagrodz|analityk|wdroz|zespol|biznesow|projektow|rozwij|tworz|dokumentacj)[a-z]*"
+)
 ALLOWED_REQUIRED_LANGUAGES = frozenset({"English", "Russian", "Spanish"})
 LANGUAGE_NAME_PATTERNS = {
     "English": r"english|английск[\wё]*",
@@ -116,8 +169,8 @@ _GENERIC_LANGUAGE_NON_NAMES = {
 _REQUIRED_LANGUAGE_PREFIXES = (
     re.compile(
         r"(?:\b(?:command|knowledge|proficiency|fluency)\s+(?:of|in)|"
-        r"\b(?:fluent|proficient|native)\s+(?:in\s+)?|"
-        r"\bflie(?:ß|ss)end\s+|"
+        r"\b(?:fluent|proficient|native)(?:\s+in)?|"
+        r"\bflie(?:ß|ss)end|"
         r"\b(?:must|required\s+to|need\s+to)\s+(?:speak|read|write|know|use|communicate\s+in)|"
         r"\b(?:required|mandatory|essential)\s+(?:command|knowledge|proficiency|fluency)\s+(?:of|in))"
         r"\s+(?:the\s+)?[^.;:\n]{0,80}$",
@@ -146,39 +199,52 @@ _REQUIRED_LANGUAGE_SUFFIXES = (
 
 
 def detect_language(text: str) -> str:
-    """Replaceable deterministic language heuristic for en/ru/de vacancies."""
-    cyrillic_count = len(CYRILLIC_RE.findall(text))
-    latin_count = len(LATIN_RE.findall(text))
-    total_letters = cyrillic_count + latin_count
-    if cyrillic_count >= 20 and total_letters and cyrillic_count / total_letters >= 0.2:
-        return "ru"
-    if GERMAN_RE.search(text) and cyrillic_count == 0:
-        return "de"
-    return "en"
+    """Identify supported descriptions conservatively, blocking foreign/uncertain content.
+
+    This is a local rule-based gate, not a statistical language model. Unsupported scripts,
+    conflicting language evidence and insufficient positive evidence fail closed.
+    """
+    text = re.sub(r"https?://\S+|\b\S+@\S+\b", " ", text).casefold()
+    words = re.findall(r"[^\W\d_]+", text)
+    if not words:
+        return "unknown"
+    # Cyrillic is not synonymous with Russian; Latin is not synonymous with English.
+    foreign_letters = [
+        char
+        for char in text
+        if char.isalpha() and not ("LATIN" in unicodedata.name(char, "") or "а" <= char <= "я" or char == "ё")
+    ]
+    if len(foreign_letters) >= 3:
+        return "unknown"
+    folded = [
+        "".join(
+            char for char in unicodedata.normalize("NFKD", word.replace("ł", "l")) if not unicodedata.combining(char)
+        )
+        if any("LATIN" in unicodedata.name(char, "") for char in word)
+        else word.replace("ё", "е")
+        for word in words
+    ]
+    counts = Counter(folded)
+    vocabulary = set(counts)
+    other_scores = {code: len(vocabulary & markers) for code, markers in _OTHER_WORDS.items()}
+    other_scores["pl"] = len(
+        (vocabulary & _OTHER_WORDS["pl"]) | {word for word in vocabulary if _POLISH_STEMS.fullmatch(word)}
+    )
+    other, score = max(other_scores.items(), key=lambda item: item[1])
+    if score >= 2:
+        return other
+    scores = {code: sum(counts[word] for word in vocabulary & markers) for code, markers in _ACCEPTED_WORDS.items()}
+    language = max(scores, key=scores.get)
+    recognized = set().union(*(_ACCEPTED_WORDS[code] & vocabulary for code in _ACCEPTED_WORDS))
+    coverage = sum(counts[word] for word in recognized) / len(folded)
+    if len(vocabulary & _ACCEPTED_WORDS[language]) < 2 or coverage < 0.15:
+        return "unknown"
+    return language
 
 
 def detect_linkedin_content_language(text: str) -> str:
-    """Return a conservative language label for LinkedIn job-content policy."""
-    detected = detect_language(text)
-    if detected in {"ru", "de"}:
-        return detected
-
-    lowered = text.casefold()
-    english_score = _language_marker_score(lowered, LINKEDIN_ENGLISH_MARKERS)
-    other_scores = {
-        language: _language_marker_score(lowered, markers)
-        for language, markers in LINKEDIN_OTHER_LANGUAGE_MARKERS.items()
-    }
-    other_language, other_score = max(other_scores.items(), key=lambda item: item[1], default=("unknown", 0))
-    if other_score >= 2 and other_score > english_score:
-        return other_language
-    if english_score >= 2 or (english_score >= 1 and "requirements" in lowered):
-        return "en"
-    return "unknown"
-
-
-def _language_marker_score(text: str, markers: tuple[str, ...]) -> int:
-    return sum(bool(re.search(rf"(?<![\w-]){re.escape(marker.casefold())}(?![\w-])", text)) for marker in markers)
+    """Compatibility entry point; all sources now use the same description policy."""
+    return detect_language(text)
 
 
 def explicit_unsupported_language_requirements(text: str) -> list[str]:
