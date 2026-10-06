@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from .config import Preferences
@@ -48,12 +49,25 @@ def read_telegram_raw(preferences: Preferences) -> list[RawRecord]:
 
 
 def rebuild_from_authoritative_sources(
-    preferences: Preferences, stats: BatchStats | None = None, headhunter_raw: list[RawRecord] | None = None
+    preferences: Preferences,
+    stats: BatchStats | None = None,
+    headhunter_raw: list[RawRecord] | None = None,
+    *,
+    shortlist_source: str | None = None,
+    published_since: datetime | None = None,
 ) -> dict[str, Any]:
     hh_raw, vacancies, duplicates = prepare_authoritative_vacancies(preferences, headhunter_raw)
     run_stats = stats or BatchStats()
     run_stats.duplicates_merged = duplicates
-    return export_all(hh_raw, vacancies, preferences, run_stats, preferences.all_queries)
+    return export_all(
+        hh_raw,
+        vacancies,
+        preferences,
+        run_stats,
+        preferences.all_queries,
+        shortlist_source=shortlist_source,
+        published_since=published_since,
+    )
 
 
 def prepare_authoritative_vacancies(

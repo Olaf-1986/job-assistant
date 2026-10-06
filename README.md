@@ -99,7 +99,9 @@ shortlist candidates (and enough replacements for any closed entries), checks th
 `linkedin-fetch --recheck-shortlist`; optionally pair it with `--since-days DAYS`. Normal LinkedIn page delays
 and stop conditions still apply. Telegram uses the window on its initial read, while existing checkpoints still take
 precedence. Add `--force` only when another successful HH fetch is intentional.
-`output/combined_shortlist.md` is the canonical all-source view. Source-specific commands write
+`output/combined_shortlist.md` is the canonical shortlist for the most recent run: `qf ... all ...` includes all sources,
+while `qf ... li ...` (and other source-specific aliases) limits it to the selected source and publication window.
+Source-specific commands also write
 `output/shortlist_hh.md`, `output/shortlist_li.md`, or `output/shortlist_tg.md`; the old `output/shortlist.md` is no
 longer part of the pipeline.
 

@@ -117,7 +117,7 @@ def test_shortlist_size_override_is_temporary(monkeypatch, tmp_path):
     observed_sizes = []
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
 
-    def fake_rebuild(active_preferences, stats):
+    def fake_rebuild(active_preferences, stats, **kwargs):
         observed_sizes.append(active_preferences.run.shortlist_size)
         return {}
 
@@ -180,8 +180,9 @@ def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
 
     def fake_rebuild(*args, **kwargs):
-        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-        return {}
+        from job_assistant.export import export_all
+
+        return export_all([], vacancies, args[0], args[1], [], **kwargs)
 
     monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
 
@@ -191,6 +192,8 @@ def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
     markdown = paths["linkedin_shortlist"].read_text(encoding="utf-8")
     assert "LinkedIn Analyst" in markdown
     assert "HH Analyst" not in markdown
+    assert paths["combined_shortlist"].read_text(encoding="utf-8") == markdown
+    assert len(read_json(paths["combined_json"])) == 2
     assert not (paths["dir"] / "shortlist.md").exists()
 
 

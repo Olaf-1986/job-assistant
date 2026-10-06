@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .config import Preferences
 from .deduplicate import vacancies_match
@@ -41,12 +42,41 @@ def export_source_shortlist(
     published_since: datetime | None = None,
 ) -> int:
     """Write a source-attributed view while preserving the shared shortlist rules."""
+    attributed = source_shortlist_candidates(vacancies, source, published_since=published_since)
+    return export_shortlist(attributed, size, path)
+
+
+def source_shortlist_candidates(
+    vacancies: list[NormalizedVacancy], source: str, *, published_since: datetime | None = None
+) -> list[NormalizedVacancy]:
     attributed = [vacancy for vacancy in vacancies if source == vacancy.source or source in vacancy.sources]
+    if source == "linkedin":
+        projected = []
+        for vacancy in attributed:
+            urls = [vacancy.source_url, *vacancy.source_urls, vacancy.apply_url, vacancy.application_url]
+            linkedin_url = next(
+                (
+                    url
+                    for url in urls
+                    if url
+                    and (urlsplit(url).hostname or "").lower() in {"linkedin.com", "www.linkedin.com"}
+                    and "/jobs/view/" in urlsplit(url).path
+                ),
+                None,
+            )
+            projected.append(
+                vacancy.model_copy(
+                    update={"apply_url": linkedin_url, "source_url": linkedin_url, "application_url": linkedin_url}
+                )
+                if linkedin_url
+                else vacancy
+            )
+        attributed = projected
     if published_since is not None:
         attributed = [
             vacancy for vacancy in attributed if _published_on_or_after(vacancy.publication_date, published_since)
         ]
-    return export_shortlist(attributed, size, path)
+    return attributed
 
 
 def _published_on_or_after(publication_date: datetime | None, cutoff: datetime) -> bool:
@@ -115,10 +145,18 @@ def export_all(
     preferences: Preferences,
     stats: BatchStats,
     queries: list[str],
+    *,
+    shortlist_source: str | None = None,
+    published_since: datetime | None = None,
 ) -> dict[str, Any]:
     paths = output_paths(preferences)
     ensure_directory(paths["dir"])
-    shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
+    candidates = (
+        source_shortlist_candidates(vacancies, shortlist_source, published_since=published_since)
+        if shortlist_source is not None
+        else vacancies
+    )
+    shortlist = sorted_shortlist(candidates, preferences.run.shortlist_size)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
     role_review = sorted(
         [v for v in vacancies if not v.blocker and v.requires_manual_role_review],
@@ -153,6 +191,7 @@ def export_all(
         "previously_exported_count": sum(v.previously_exported for v in vacancies),
         "role_review_count": len(role_review),
         "shortlist_count": len(shortlist),
+        "shortlist_source": shortlist_source or "all",
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
         "errors": [sanitize_error(error) for error in stats.errors],
     }

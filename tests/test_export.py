@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -14,7 +15,7 @@ from job_assistant.export import (
     sorted_shortlist,
 )
 from job_assistant.filters import apply_filters
-from job_assistant.models import BatchStats
+from job_assistant.models import BatchStats, NormalizedVacancy
 from job_assistant.normalize import normalize_records
 from job_assistant.scoring import score_vacancies
 from tests.fixtures.vacancy_records import BUSINESS_ANALYST, ONSITE_OUTSIDE_TBILISI, STRONG_JIRA_ADMIN
@@ -67,6 +68,58 @@ def test_export_all_writes_only_the_canonical_combined_shortlist(tmp_path):
 
     assert (tmp_path / preferences.outputs.combined_shortlist_file).exists()
     assert not (tmp_path / "shortlist.md").exists()
+
+
+def test_scoped_combined_shortlist_preserves_all_data_and_uses_linkedin_url(tmp_path):
+    preferences = load_preferences()
+    preferences.outputs.directory = str(tmp_path)
+    now = datetime.now(UTC)
+    vacancies = [
+        NormalizedVacancy(
+            source=source,
+            sources=sources,
+            title=title,
+            normalized_title=title.lower(),
+            source_url=url,
+            apply_url=url,
+            source_urls=urls,
+            score=100,
+            fetched_at=now,
+            publication_date=now - timedelta(days=age),
+        )
+        for source, sources, title, url, urls, age in [
+            ("headhunter", ["headhunter"], "HH Analyst", "https://hh.ru/vacancy/1", [], 1),
+            (
+                "headhunter",
+                ["headhunter", "linkedin"],
+                "Merged Analyst",
+                "https://hh.ru/vacancy/2",
+                ["https://www.linkedin.com/jobs/view/2"],
+                1,
+            ),
+            ("linkedin", ["linkedin"], "Old Analyst", "https://www.linkedin.com/jobs/view/3", [], 8),
+        ]
+    ]
+    summary = export_all(
+        [],
+        vacancies,
+        preferences,
+        BatchStats(),
+        [],
+        shortlist_source="linkedin",
+        published_since=now - timedelta(days=7),
+    )
+    markdown = (tmp_path / preferences.outputs.combined_shortlist_file).read_text()
+    assert "hh.ru" not in markdown
+    assert "HH Analyst" not in markdown
+    assert "Old Analyst" not in markdown
+    assert "https://www.linkedin.com/jobs/view/2" in markdown
+    assert summary["shortlist_count"] == 1
+    assert summary["shortlist_source"] == "linkedin"
+    assert summary["normalized_records"] == 3
+    assert vacancies[1].apply_url == "https://hh.ru/vacancy/2"
+    export_all([], vacancies, preferences, BatchStats(), [])
+    assert "hh.ru" in (tmp_path / preferences.outputs.combined_shortlist_file).read_text()
 
 
 def test_deduplicated_shortlist_excludes_previous_identity_and_backfills(tmp_path):

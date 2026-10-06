@@ -740,19 +740,21 @@ def shortlist(
         None, "--since-days", min=1, max=90, help="Exclude source records older than this many days."
     ),
 ) -> None:
-    """Rebuild canonical shortlist outputs from all authoritative source stores."""
+    """Rebuild outputs, limiting the canonical shortlist to the requested source."""
     preferences = _load_or_exit(size)
     source_key = _short_source_key(source) if source is not None else None
     if source_key is not None and source_key not in {"headhunter", "linkedin", "telegram"}:
         console.print("[red]--source supports only: headhunter (hh), linkedin (li), or telegram (tg).[/red]")
         raise typer.Exit(1)
-    summary = rebuild_from_authoritative_sources(preferences, BatchStats())
+    published_since = datetime.now(UTC) - timedelta(days=since_days) if since_days is not None else None
+    summary = rebuild_from_authoritative_sources(
+        preferences, BatchStats(), shortlist_source=source_key, published_since=published_since
+    )
     _print_summary(summary)
     if source_key is not None:
         paths = output_paths(preferences)
         combined = read_json(paths["combined_json"], [])
         vacancies = [NormalizedVacancy.model_validate(item) for item in combined if isinstance(item, dict)]
-        published_since = datetime.now(UTC) - timedelta(days=since_days) if since_days is not None else None
         shortlist_path = {
             "headhunter": paths["headhunter_shortlist"],
             "linkedin": paths["linkedin_shortlist"],
