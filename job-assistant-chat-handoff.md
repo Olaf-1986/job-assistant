@@ -18,6 +18,18 @@ ingestion stage, not another automatic vacancy-source fetch.
 Every raw vacancy passed to normalization has an explicit `__source` of `headhunter`, `linkedin`, or `telegram`. The shared pipeline
 then normalizes, deduplicates, filters, scores, and persists/exports records. Missing, unknown, or conflicting raw source
 markers are errors; legacy persisted records receive their source only at their known persistence boundary.
+Description-language eligibility uses the shared `languages.accepted` allowlist (`en`, `ru`, `es`), validated to reject
+other configured codes. The local deterministic detector does not default unknown text to English or all Cyrillic to
+Russian. English headings, requirements excerpts, and manual language metadata cannot override the description.
+Unsupported or unidentified descriptions are hard-blocked across all sources; filtering rechecks merged descriptions
+after deduplication. LinkedIn's early language gate uses the same configured allowlist, including Spanish.
+For full-page captures, language detection isolates the job-description section and excludes promotional UI/footer
+text; header-only captures cannot qualify as English when the description is missing.
+This conservative rule-based detection may reject ambiguous supported-language descriptions; no AI/ML or live service
+is used for detection.
+Explicit language requirements are an independent blocker: English descriptions requiring German fluency, for
+example, remain excluded. Fluency/proficiency/native-language prefixes accept ordinary spaces, tabs, and line breaks;
+both full descriptions and requirements sections are checked.
 Different-URL reposts are deduplicated only when normalized company and title are exact and substantive description
 word multisets overlap by at least 98%, in addition to the existing exact identity keys.
 Known monthly salary maxima at or below `200,000 RUB` equivalent are blocked. With no maximum, known minima below

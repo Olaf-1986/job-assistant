@@ -152,6 +152,25 @@ def _description_from_main_text(main_text: str) -> str:
     return "\n".join(lines)
 
 
+def linkedin_description_for_language(main_text: str) -> str:
+    """Isolate description text from extension captures that include LinkedIn UI.
+
+    The saved page may contain just a header, Premium promotion and footer while the
+    description has not loaded. Those captures must fail closed, not count as English.
+    Playwright's already-extracted descriptions need no explicit section heading.
+    """
+    lines = _description_from_main_text(main_text).splitlines()
+    headings = {"about the job", "informacje o ofercie pracy", "acerca del empleo", "об этой вакансии"}
+    start = next((index + 1 for index, line in enumerate(lines) if line.casefold() in headings), None)
+    promotions = {"use ai to assess how you fit", "get ai-powered advice on this job and more exclusive features"}
+    if start is None and any(any(line.casefold().startswith(marker) for marker in promotions) for line in lines):
+        return ""
+    lines = lines[start:] if start is not None else lines
+    footer = {"looking for talent?", "select language", "accessibility", "talent solutions"}
+    end = next((index for index, line in enumerate(lines) if line.casefold() in footer), len(lines))
+    return "\n".join(lines[:end])
+
+
 def _requirements_text_from_content(
     main_text: str,
     visible_blocks: Sequence[LinkedInVisibleBlock] | None,

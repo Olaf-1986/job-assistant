@@ -4,7 +4,8 @@ import re
 from datetime import date
 
 from .config import Preferences
-from .language import explicit_unsupported_language_requirements
+from .language import detect_language, explicit_unsupported_language_requirements
+from .linkedin_content import linkedin_description_for_language
 from .models import NormalizedVacancy
 from .utils import lower_text, slugify_text
 
@@ -121,6 +122,11 @@ def _is_atlassian_admin(text: str) -> bool:
 def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
     if _has_early_language_blocker(vacancy):
         return vacancy
+    # Re-detect after deduplication; a merged record or old language label must not bypass the policy.
+    description = vacancy.description_text or ""
+    if vacancy.source == "linkedin":
+        description = linkedin_description_for_language(description)
+    vacancy.detected_language = detect_language(description)
     text = lower_text(
         vacancy.title,
         vacancy.excerpt,
@@ -132,6 +138,8 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
     )
     title = (vacancy.title or "").lower()
     reasons: list[str] = [*vacancy.blocker_reasons]
+    if vacancy.detected_language not in preferences.languages.accepted:
+        reasons.append(f"unsupported description language: {vacancy.detected_language}")
     company_exclusion = _active_company_exclusion(vacancy.company, preferences)
     if company_exclusion:
         reasons.append(company_exclusion)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, ValidationError, field_validator
@@ -125,7 +125,7 @@ class QueriesConfig(BaseModel):
 
 
 class LanguagesConfig(BaseModel):
-    accepted: list[str] = Field(min_length=1)
+    accepted: list[Literal["en", "ru", "es"]] = Field(min_length=1)
     russian_penalty: int
 
 

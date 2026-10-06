@@ -8,14 +8,13 @@ from bs4 import BeautifulSoup
 
 from .config import Preferences
 from .language import detect_language, detect_linkedin_content_language
-from .linkedin_content import _description_from_main_text
+from .linkedin_content import _description_from_main_text, linkedin_description_for_language
 from .linkedin_policy import LINKEDIN_CLOSED_BLOCKER_REASON, has_linkedin_no_longer_accepting_marker
 from .location import detect_allowed_city, detect_work_mode
 from .models import NormalizedVacancy, RawRecord
 from .utils import canonical_url, normalize_space, slugify_text, utc_now
 
 LOGGER = logging.getLogger(__name__)
-LINKEDIN_SUPPORTED_LANGUAGES = {"en", "ru"}
 HEADHUNTER_TAG_FIELDS = ("key_skills", "skills", "professional_roles", "specializations", "tags")
 
 
@@ -120,7 +119,11 @@ def _base_vacancy(
     warnings: list[str] = list(extra.pop("warnings", []))
     initial_blocker_reasons = sorted(set(extra.pop("initial_blocker_reasons", [])))
     text_for_detection = "\n".join([title, excerpt or "", description_text or "", location or ""])
-    language = extra.pop("detected_language", None) or detect_language(text_for_detection)
+    # Detect the description itself: titles, locations and declared metadata cannot make it English.
+    extra.pop("detected_language", None)
+    language = detect_language(
+        linkedin_description_for_language(description_text or "") if source == "linkedin" else description_text or ""
+    )
     if language not in preferences.languages.accepted:
         warnings.append(f"unaccepted detected language: {language}")
     canonical = canonical_url(url)
@@ -235,7 +238,7 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
     experience = _dict_name(record.get("experience"))
     analysis_tags = headhunter_analysis_tags(record)
     text_for_detection = "\n".join([title, description_text or "", area or "", schedule or ""])
-    language = detect_language(text_for_detection)
+    language = detect_language(description_text or "")
     if language not in preferences.languages.accepted:
         warnings.append(f"unaccepted detected language: {language}")
     location_restrictions = [area] if area else []
@@ -457,15 +460,15 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
     visible = record.get("visible_text") if isinstance(record.get("visible_text"), str) else record.get("text") or ""
     if not isinstance(visible, str):
         visible = ""
-    text = visible.strip() or selected.strip() or page_title
+    text = visible.strip() or selected.strip()
     requirements_text = (
         record.get("requirements_text")
         if isinstance(record.get("requirements_text"), str) and record.get("requirements_text").strip()
         else None
     )
-    detected_language = detect_linkedin_content_language("\n".join([page_title, visible, requirements_text or ""]))
+    detected_language = detect_linkedin_content_language(linkedin_description_for_language(text))
     initial_blocker_reasons = []
-    if detected_language not in LINKEDIN_SUPPORTED_LANGUAGES:
+    if detected_language not in preferences.languages.accepted:
         initial_blocker_reasons.append(f"unsupported LinkedIn job-content language: {detected_language}")
     blocker_text = "\n".join([page_title, _description_from_main_text(visible), selected, requirements_text or ""])
     if has_linkedin_no_longer_accepting_marker(blocker_text):
@@ -594,7 +597,7 @@ def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Prefere
     company = record.get("companyName") if isinstance(record.get("companyName"), str) else None
     location = record.get("jobGeo") if isinstance(record.get("jobGeo"), str) else None
     text_for_detection = "\n".join([title, excerpt or "", description_text or ""])
-    language = detect_language(text_for_detection)
+    language = detect_language(description_text or "")
     if language not in preferences.languages.accepted:
         warnings.append(f"unaccepted detected language: {language}")
     location_restrictions = [normalize_space(location)] if location else []
