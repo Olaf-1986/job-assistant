@@ -15,7 +15,7 @@ current scope.
 Email errors are sanitized and isolated so successful source data can continue through rebuild and export. Email is an
 ingestion stage, not another automatic vacancy-source fetch.
 
-Every raw vacancy passed to normalization has an explicit `__source` of `headhunter`, `linkedin`, or `telegram`. The shared pipeline
+Every active raw vacancy passed to normalization has an explicit `__source` of `headhunter`, `linkedin`, `telegram`, or `rvc`. The shared pipeline
 then normalizes, deduplicates, filters, scores, and persists/exports records. Missing, unknown, or conflicting raw source
 markers are errors; legacy persisted records receive their source only at their known persistence boundary.
 Description-language eligibility uses the shared `languages.accepted` allowlist (`en`, `ru`, `es`), validated to reject
@@ -109,19 +109,38 @@ and Научсофт are excluded through 6 November 2026 inclusive; the existin
   for conservative removal-review evidence. Removal review is emitted only for consecutive three-day windows. It never
   modifies configured source lists.
 
+### RVC
+
+- Explicit `rvc-discover` performs one anonymous MCP search with at most ten cards; no pagination, retry, browser,
+  scheduler or automatic detail fan-out. It never runs from `fetch`, `fetch-all`, or `qf all`.
+- `output/rvc_raw.json` is a versioned store of cards, first/last seen timestamps, run history and user reviews.
+  Pending cards are not pipeline inputs. Rediscovery preserves reviewed text, publication dates and review status.
+  Invalid stored data stops processing without moving or replacing the file.
+- `rvc-review` takes a local JSON review with full text, original publication timestamp and affirmative location/open
+  checks, or marks a candidate rejected/expired. Reviews are idempotent by RVC identity. Publication never falls back
+  to discovery time. Country/relative-age metadata from MCP is insufficient to confirm eligibility or freshness.
+- Reviewed records use the shared pipeline and source provenance; existing filters remain authoritative. Successful
+  review persistence precedes export so a failed rebuild is retryable. Rejection/expiry preserves prior descriptions.
+- `rvc-audit` measures current local overlap, incremental eligibility and review minutes. Its two-week assessment
+  needs two distinct observation dates and completed reviews; three additional eligible records is the proposed
+  threshold. No conclusion about global LinkedIn exclusivity is made.
+- Provider questions about retention, scheduling and full-text access are drafted in `docs/rvc-access-questions.md`.
+  They have not been sent or answered. Automated enrichment and periodic collection remain planned possibilities.
+
 ## Authoritative Data and Rebuilds
 
 Combined output is derived only from the latest successful HeadHunter raw store, persisted LinkedIn extension,
-Playwright, or manual captures, and persisted Telegram raw records. An old `combined_jobs.json` is never an
+Playwright, or manual captures, persisted Telegram raw records, and reviewed records in the RVC store.
+An old `combined_jobs.json` is never an
 authoritative input.
 
 `combined_shortlist.md` is the canonical Markdown shortlist of the latest completed publication. `qf all` and
 unscoped `shortlist` include all available saved sources; `qf hh|li|tg` and `shortlist --source` restrict it to the
 selected source. Every shared export refreshes the source-attributed views
-`shortlist_hh.md`, `shortlist_li.md`, and `shortlist_tg.md`; the legacy generic `shortlist.md` is not written.
+`shortlist_hh.md`, `shortlist_li.md`, `shortlist_tg.md`, and `shortlist_rvc.md`; the legacy generic `shortlist.md` is not written.
 Available means valid authoritative stored data passing the shared pipeline, including earlier successful imports
 when this run's source refresh failed, was disabled or was skipped. Missing stores are empty; damaged stores stop
-rebuilding. Saved fallback records may be stale.
+rebuilding. Saved reviewed RVC entries can participate without running discovery. Saved fallback records may be stale.
 The `qf` window scopes collection/rechecking and source-specific candidates/views; the all-source canonical candidate
 pool is not date-trimmed. Undated records remain eligible.
 
@@ -136,7 +155,7 @@ rebuild. Earlier source writes/publications can already have completed before a 
 combined-shortlist baseline saved by its previous invocation, writes `deduplicated_shortlist.md`, and then advances
 the JSON baseline. That baseline is comparison state only and is never an authoritative vacancy input.
 
-HeadHunter refreshes preserve LinkedIn and Telegram captures. Failed or skipped HeadHunter/email work does not erase
+HeadHunter refreshes preserve LinkedIn, Telegram and reviewed RVC records. Failed or skipped HeadHunter/email work does not erase
 successful stored data. Repeated email ingestion, LinkedIn processing, Telegram message identities, vacancy IDs, and
 URLs remain idempotent.
 
@@ -150,7 +169,7 @@ full responses; unproven/tied freshness retains the existing record. Reimport re
 This uses the local clock, not HH publication dates, and leaves cross-source deduplication unchanged.
 
 HH/manual/Telegram raw reads now validate JSON structure, source identity and core fields without moving or repairing
-invalid files. Missing stores are valid first-run state. Legacy wrappers
+invalid files; RVC already used strict schema validation. Missing stores are valid first-run state. Legacy wrappers
 and LinkedIn markers remain compatible. Even a new HH replacement does not bypass validation of the old store.
 Derived-state `read_json` recovery policies remain separate.
 

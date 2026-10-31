@@ -17,6 +17,7 @@ from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
 from .publication import PublicationError, json_bytes, publish_files, recover_publication
 from .raw_store import read_raw_store, validate_raw_records
+from .rvc_store import load_rvc_store
 from .utils import ensure_directory, write_bytes
 
 
@@ -174,6 +175,7 @@ def export_all(
     read_raw_store(paths["raw"], "headhunter")
     read_raw_store(paths["manual_imports"], "manual")
     read_raw_store(paths["telegram_raw"], "telegram")
+    load_rvc_store(preferences)
     validate_raw_records(raw_records, "headhunter")
     keys = (
         "raw",
@@ -187,6 +189,7 @@ def export_all(
         "headhunter_shortlist",
         "linkedin_shortlist",
         "telegram_shortlist",
+        "rvc_shortlist",
         "summary",
     )
     if len({paths[key].resolve() for key in keys}) != len(keys):
@@ -250,6 +253,7 @@ def export_all(
         ("headhunter", "headhunter_shortlist"),
         ("linkedin", "linkedin_shortlist"),
         ("telegram", "telegram_shortlist"),
+        ("rvc", "rvc_shortlist"),
     ):
         attributed = source_shortlist_candidates(vacancies, source, published_since=published_since)
         files[paths[key]] = _shortlist_markdown(sorted_shortlist(attributed, preferences.run.shortlist_size)).encode(

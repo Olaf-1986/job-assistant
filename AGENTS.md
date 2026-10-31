@@ -9,6 +9,7 @@ Treat implemented behavior separately from planned or assumed behavior.
 - LinkedIn queue items support two opt-in workflows: user-triggered current-page capture through the Chromium extension, and explicitly invoked Playwright processing through `linkedin-fetch`.
 - `fetch --source linkedin` starts neither workflow and makes no LinkedIn request. Neither `fetch` nor `fetch-all` may start LinkedIn Playwright.
 - Telegram is an explicitly invoked, read-only Telethon workflow over configured allowlisted dialogs already joined by the account. It never runs from `fetch` or `fetch-all`.
+- RVC is an explicit, bounded MCP discovery pilot. Pending cards stay in its review queue; user-reviewed full descriptions enter the shared pipeline. It never runs from `fetch`, `fetch-all`, or `qf all`.
 - New sources must enter the shared normalization, deduplication, filtering, scoring, persistence, and export pipeline.
 
 ## Sources of truth
@@ -47,7 +48,7 @@ Tests must not use live network or IMAP access, browser sessions, credentials, `
 ## Persistence and pipeline invariants
 
 - Preserve the implemented pipeline order: normalize, deduplicate, filter, score, persist/export. New ingestion paths must use this shared pipeline rather than writing final combined outputs independently.
-- Rebuild derived combined outputs only from authoritative stores: the latest successful HeadHunter raw data, persisted LinkedIn captures/imports, and persisted Telegram raw records. Never treat an old combined output as an authoritative input.
+- Rebuild derived combined outputs only from authoritative stores: the latest successful HeadHunter raw data, persisted LinkedIn captures/imports, persisted Telegram raw records, and reviewed RVC records. Never treat an old combined output as an authoritative input.
 - Preserve idempotency for repeated email ingestion, duplicate URLs/job IDs, repeated LinkedIn processing, and Telegram message/vacancy identities.
 - Preserve compatibility with existing persisted records, including the legacy LinkedIn `manual_capture_required` queue status.
 - Never silently lose or destructively replace successful stored data. Failed or skipped HeadHunter/email work must not erase valid HeadHunter, LinkedIn, or Telegram data; HeadHunter refreshes must preserve LinkedIn and Telegram captures.

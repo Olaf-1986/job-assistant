@@ -71,6 +71,10 @@ sources:
     enabled: true
     mode: manual_or_explicit_playwright
     manual_run_only: true
+  rvc:
+    enabled: true
+    mode: explicit_mcp_discovery
+    manual_run_only: true
   telegram:
     enabled: true
     mode: user_api_read_only

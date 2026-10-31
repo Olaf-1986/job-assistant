@@ -55,6 +55,8 @@ from .persistence import (
 )
 from .publication import PublicationError, recover_publication
 from .raw_store import StoreError, read_raw_store
+from .rvc_cli import register_rvc_commands
+from .rvc_store import RvcError
 from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_statuses, mark_status, write_statuses
 from .telegram_audit import TelegramAuditResult, audit_telegram
 from .telegram_client import TelegramConnectionError, TelegramError, telegram_login
@@ -85,12 +87,13 @@ class StorageErrorGroup(TyperGroup):
     def invoke(self, ctx):
         try:
             return super().invoke(ctx)
-        except (StoreError, PublicationError) as exc:
+        except (StoreError, PublicationError, RvcError) as exc:
             console.print(f"[red]Storage error:[/red] {exc}")
             raise typer.Exit(1) from None
 
 
 app = typer.Typer(cls=StorageErrorGroup, help="Local job-search assistant vertical slice.")
+register_rvc_commands(app, console)
 
 
 class FetchWindow(str, Enum):
@@ -230,6 +233,7 @@ def fetch_all(
         except (
             StoreError,
             PublicationError,
+            RvcError,
             OSError,
             ValidationError,
             json.JSONDecodeError,
@@ -261,7 +265,7 @@ def fetch_all(
             email_errors = _tag_email_errors(email_result.stats.errors)
             combined_stats.errors.extend(email_errors)
             stages.append(_fetch_stage_result("email", email_result.stats, None))
-        except (StoreError, PublicationError, ValidationError, json.JSONDecodeError, typer.Abort, typer.Exit):
+        except (StoreError, PublicationError, RvcError, ValidationError, json.JSONDecodeError, typer.Abort, typer.Exit):
             raise
         except Exception as exc:
             error = _tag_email_errors([exc])[0]
@@ -771,7 +775,7 @@ def quick_fetch(
             result = ctx.invoke(callback, **kwargs)
         except SourceStageExit as exc:
             stages.append(exc.result)
-        except (StoreError, PublicationError, OSError, ValidationError, json.JSONDecodeError):
+        except (StoreError, PublicationError, RvcError, OSError, ValidationError, json.JSONDecodeError):
             console.print(f"[red]{name}: storage/publication failure; qf stopped before final shortlist.[/red]")
             raise
         except (typer.Abort, typer.Exit):
@@ -853,7 +857,7 @@ def qf_app() -> None:
     """Expose quick fetch as a standalone console command."""
     try:
         typer.run(quick_fetch)
-    except (StoreError, PublicationError) as exc:
+    except (StoreError, PublicationError, RvcError) as exc:
         console.print(f"[red]Storage error:[/red] {exc}")
         raise SystemExit(1) from None
 
@@ -861,7 +865,7 @@ def qf_app() -> None:
 @app.command()
 def shortlist(
     source: str | None = typer.Option(
-        None, "--source", help="Optional source-only view: headhunter (hh), linkedin (li), or telegram (tg)."
+        None, "--source", help="Optional source-only view: headhunter (hh), linkedin (li), telegram (tg), or rvc."
     ),
     size: int | None = typer.Option(None, "--size", "-n", min=1, max=500, help="Shortlist entries for this run."),
     since_days: int | None = typer.Option(
@@ -876,8 +880,8 @@ def shortlist(
     """
     preferences = _load_or_exit(size)
     source_key = _short_source_key(source) if source is not None else None
-    if source_key is not None and source_key not in {"headhunter", "linkedin", "telegram"}:
-        console.print("[red]--source supports only: headhunter (hh), linkedin (li), or telegram (tg).[/red]")
+    if source_key is not None and source_key not in {"headhunter", "linkedin", "telegram", "rvc"}:
+        console.print("[red]--source supports only: headhunter (hh), linkedin (li), telegram (tg), or rvc.[/red]")
         raise typer.Exit(1)
     published_since = datetime.now(UTC) - timedelta(days=since_days) if since_days is not None else None
     stages = ctx.meta.get("qf_stages", []) if ctx is not None else []
@@ -894,6 +898,7 @@ def shortlist(
             "headhunter": paths["headhunter_shortlist"],
             "linkedin": paths["linkedin_shortlist"],
             "telegram": paths["telegram_shortlist"],
+            "rvc": paths["rvc_shortlist"],
         }[source_key]
         count = summary["shortlist_count"]
         console.print(f"{source_key.title()}-only shortlist: {count} records written to {shortlist_path}.")
@@ -1131,6 +1136,10 @@ def _fetch_source(
     preferences, source: str, force: bool, since_days: int | None = None
 ) -> tuple[list[dict], BatchStats, str | None]:
     source = _source_key(source)
+    if source == "rvc":
+        mode = "explicit_mcp_discovery"
+        message = "Use rvc-discover followed by rvc-review; discovery is explicitly invoked."
+        return [], BatchStats(errors=[message]), mode
     if source == "linkedin":
         message = (
             f"{LINKEDIN_EXECUTION_MODE}: use `uv run python -m job_assistant capture-server` "

@@ -15,6 +15,7 @@ from .paths import output_paths
 from .publication import recover_publication
 from .raw_store import read_raw_store, validate_raw_records
 from .recovered_state import apply_recovered_state
+from .rvc_store import read_rvc_raw
 from .scoring import score_vacancies
 from .utils import read_json
 
@@ -67,7 +68,7 @@ def rebuild_from_authoritative_sources(
 
 
 def prepare_authoritative_vacancies(
-    preferences: Preferences, headhunter_raw: list[RawRecord] | None = None
+    preferences: Preferences, headhunter_raw: list[RawRecord] | None = None, *, include_rvc: bool = True
 ) -> tuple[list[RawRecord], list[NormalizedVacancy], int]:
     """Run the shared pipeline without exporting its derived outputs."""
     # Even a successful replacement must not hide a damaged existing store.
@@ -77,7 +78,8 @@ def prepare_authoritative_vacancies(
     hh_raw = _dedupe_headhunter_raw(_with_source(source_raw, "headhunter", "HeadHunter input"))
     linkedin_raw = read_linkedin_manual_raw(preferences)
     telegram_raw = read_telegram_raw(preferences)
-    all_raw = [*hh_raw, *linkedin_raw, *telegram_raw]
+    rvc_raw = read_rvc_raw(preferences) if include_rvc else []
+    all_raw = [*hh_raw, *linkedin_raw, *telegram_raw, *rvc_raw]
     vacancies = normalize_records(all_raw, preferences)
     vacancies, duplicates = deduplicate_vacancies(vacancies)
     apply_recovered_state(vacancies, preferences)

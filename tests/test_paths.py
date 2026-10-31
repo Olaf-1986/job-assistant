@@ -36,6 +36,8 @@ def test_output_paths_preserve_configured_keys_and_filenames(tmp_path):
         "telegram_failures": outputs.telegram_failures_file,
         "telegram_audit": outputs.telegram_audit_file,
         "telegram_shortlist": outputs.telegram_shortlist_file,
+        "rvc_raw": outputs.rvc_raw_file,
+        "rvc_shortlist": outputs.rvc_shortlist_file,
     }
     assert set(paths) == {"dir", *expected_filenames}
     assert paths["dir"] == tmp_path

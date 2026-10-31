@@ -25,6 +25,7 @@ from job_assistant.persistence import (
 )
 from job_assistant.publication import JOURNAL, PublicationError, publish_files, recover_publication
 from job_assistant.raw_store import StoreError
+from job_assistant.rvc_store import RvcError
 from job_assistant.sources import load_statuses
 from job_assistant.telegram_ingestion import fetch_telegram
 from job_assistant.telegram_parser import parse_telegram_message
@@ -123,7 +124,7 @@ def test_email_additions_use_new_empty_or_preserved_hh_snapshot(monkeypatch, pre
     )
 
 
-@pytest.mark.parametrize("key", ["raw", "manual_imports", "telegram_raw"])
+@pytest.mark.parametrize("key", ["raw", "manual_imports", "telegram_raw", "rvc_raw"])
 @pytest.mark.parametrize(
     "contents", [b'{"private-content":', b"\xff", b"null", b"{}", b"[null]", b'[{"record": []}]', b"[{}]"]
 )
@@ -136,7 +137,7 @@ def test_corrupt_authoritative_store_blocks_rebuild_without_changing_any_file(
     before = {path: path.read_bytes() for path in paths["dir"].iterdir() if path.is_file()}
 
     for _ in range(2):
-        with pytest.raises(StoreError) as error:
+        with pytest.raises(RvcError if key == "rvc_raw" else StoreError) as error:
             rebuild_from_authoritative_sources(preferences, headhunter_raw=replacement)
         assert "private-content" not in str(error.value)
         assert "private-content" not in caplog.text
@@ -257,6 +258,7 @@ OUTPUT_KEYS = (
     "headhunter_shortlist",
     "linkedin_shortlist",
     "telegram_shortlist",
+    "rvc_shortlist",
     "summary",
 )
 

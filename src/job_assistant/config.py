@@ -108,6 +108,9 @@ class SourcesConfig(BaseModel):
     email: GenericSourceConfig
     linkedin: GenericSourceConfig
     telegram: TelegramSourceConfig
+    rvc: GenericSourceConfig = Field(
+        default_factory=lambda: GenericSourceConfig(enabled=True, mode="explicit_mcp_discovery", manual_run_only=True)
+    )
 
 
 class QueriesConfig(BaseModel):
@@ -198,6 +201,8 @@ class OutputsConfig(BaseModel):
     telegram_failures_file: str = "telegram_failures.json"
     telegram_audit_file: str = "telegram_audit.json"
     telegram_shortlist_file: str = "shortlist_tg.md"
+    rvc_raw_file: str = "rvc_raw.json"
+    rvc_shortlist_file: str = "shortlist_rvc.md"
 
     def output_dir(self) -> Path:
         return ROOT / self.directory

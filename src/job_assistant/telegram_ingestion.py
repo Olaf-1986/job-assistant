@@ -17,6 +17,7 @@ from .publication import json_bytes, publish_files, recover_publication
 from .raw_store import read_raw_store
 from .scoring import score_vacancies
 from .telegram_client import TelegramError, TelegramMessage, TelegramRateLimitError, build_telegram_reader
+from .telegram_page import fetch_vacancy_page_text
 from .telegram_parser import TelegramParseResult, parse_telegram_message
 from .utils import read_json, utc_now
 
@@ -139,6 +140,8 @@ async def fetch_telegram(
                 parsed_results = (
                     [] if all_history else [parse_telegram_message(message, preferences) for message in messages]
                 )
+                if not all_history:
+                    await _enrich_vacancy_pages(parsed_results)
             except TelegramError as exc:
                 report.error = str(exc)
                 if isinstance(exc, TelegramRateLimitError):
@@ -186,6 +189,7 @@ async def fetch_telegram(
             messages = selected_messages.get(source, [])
             try:
                 parsed_results = [parse_telegram_message(message, preferences) for message in messages]
+                await _enrich_vacancy_pages(parsed_results)
             except Exception:
                 report.error = "unexpected Telegram source processing failure"
                 continue
@@ -211,6 +215,40 @@ async def fetch_telegram(
         )
         result.summary = rebuild_from_authoritative_sources(preferences, stats)
     return result
+
+
+async def _enrich_vacancy_pages(parsed_results: list[TelegramParseResult]) -> None:
+    """Append readable linked-page text so shared role and blocker filters can inspect it."""
+    from .telegram_parser import _extract_location, _extract_work_mode
+
+    seen: dict[str, str | None] = {}
+    for parsed in parsed_results:
+        for candidate in parsed.target_records:
+            record = candidate
+            url = record.get("apply_url")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                continue
+            if url not in seen:
+                try:
+                    seen[url] = await fetch_vacancy_page_text(url)
+                except Exception:
+                    # Page access is best effort; keep the Telegram record and its message text.
+                    seen[url] = None
+            page_text = seen[url]
+            if not page_text:
+                continue
+            message_text = record.get("raw_text") if isinstance(record.get("raw_text"), str) else ""
+            combined_text = f"{message_text}\n\nLinked vacancy page:\n{page_text}".strip()
+            record["raw_text"] = combined_text
+            record["vacancy_page_text"] = page_text
+            page_location = _extract_location(page_text)
+            if page_location:
+                record["location"] = page_location
+            page_work_mode = _extract_work_mode(page_text)
+            if page_work_mode:
+                record["work_mode"] = page_work_mode
+            if record.get("work_mode"):
+                record["requires_manual_location_review"] = False
 
 
 def _select_latest_messages(

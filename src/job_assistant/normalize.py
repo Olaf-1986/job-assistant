@@ -580,6 +580,59 @@ def _normalize_telegram_record(record: RawRecord, query: str, preferences: Prefe
     return vacancy
 
 
+def _normalize_rvc_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
+    title = record.get("title")
+    if not isinstance(title, str) or not title.strip() or not record.get("id"):
+        return None
+    text = record.get("description_text")
+    text = text if isinstance(text, str) else None
+    reasons = []
+    if record.get("review_status") != "reviewed" or not record.get("reviewed_at"):
+        reasons.append("RVC candidate requires review or is rejected/expired")
+    published_at = parse_datetime(record.get("published_at"))
+    if published_at is None:
+        reasons.append("RVC publication date is unverified")
+    if not text or len(text.strip()) < 200:
+        reasons.append("RVC full description is missing")
+    if record.get("accepting_applications") is not True:
+        reasons.append("RVC application availability is unverified")
+    warnings: list[str] = []
+    application_url = canonical_url(record.get("application_url"))
+    vacancy = _base_vacancy(
+        "rvc",
+        str(record["id"]),
+        query,
+        title,
+        record.get("company"),
+        None,
+        text,
+        text,
+        record.get("location"),
+        record.get("url"),
+        preferences,
+        apply_url=application_url or canonical_url(record.get("url")),
+        publication_date=published_at,
+        first_seen_at=parse_datetime(record.get("first_seen_at")),
+        last_seen_at=parse_datetime(record.get("last_seen_at")),
+        work_mode=record.get("work_mode"),
+        imported_manually=True,
+        initial_blocker_reasons=reasons,
+        requires_manual_location_review=record.get("eligible_from_georgia") is not True,
+        salary_min=parse_optional_float(record.get("salary_min"), "salary_min", warnings),
+        salary_max=parse_optional_float(record.get("salary_max"), "salary_max", warnings),
+        salary_currency=record.get("salary_currency"),
+        salary_period=record.get("salary_period"),
+        warnings=warnings,
+        source_metadata={
+            "reviewed_at": record.get("reviewed_at"),
+            "source_references": [{"source": "rvc", "id": str(record["id"]), "url": record.get("url")}],
+        },
+    )
+    vacancy.application_url = vacancy.apply_url
+    vacancy.raw_application_urls = [application_url] if application_url else []
+    return vacancy
+
+
 def _normalize_jobicy_record(record: RawRecord, query: str, preferences: Preferences) -> NormalizedVacancy | None:
     warnings: list[str] = []
     title = record.get("jobTitle")
@@ -668,6 +721,7 @@ _SOURCE_NORMALIZERS = {
     "headhunter": _normalize_headhunter_record,
     "linkedin": _normalize_linkedin_record,
     "telegram": _normalize_telegram_record,
+    "rvc": _normalize_rvc_record,
     "jooble": _normalize_jooble_record,
     "arbeitnow": _normalize_arbeitnow_record,
     "greenhouse": _normalize_greenhouse_record,

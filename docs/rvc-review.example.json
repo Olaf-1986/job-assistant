@@ -1,0 +1,15 @@
+{
+  "title": "Business Analyst",
+  "company": "Example Ltd — replace with the verified employer",
+  "description_text": "Replace this example with the full vacancy description obtained through an authorized route. Include the responsibilities, requirements, language requirements, salary if present, work location and work authorization restrictions. Do not submit the short RVC teaser or a generated summary. Review the original posting and confirm it is still accepting applications and actually permits working from Georgia.",
+  "published_at": "2026-10-01T12:00:00Z",
+  "location": "Remote from Georgia — replace with verified restrictions",
+  "work_mode": "remote",
+  "eligible_from_georgia": true,
+  "accepting_applications": true,
+  "application_url": null,
+  "salary_min": null,
+  "salary_max": null,
+  "salary_currency": null,
+  "salary_period": null
+}

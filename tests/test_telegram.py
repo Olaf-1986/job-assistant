@@ -443,6 +443,35 @@ def test_dry_run_has_no_project_state_writes(tmp_path):
     assert not preferences.outputs.output_dir().exists()
 
 
+def test_telegram_ingestion_uses_linked_page_text_for_location_and_blockers(monkeypatch, tmp_path):
+    preferences = telegram_preferences(tmp_path)
+    fetched: list[str] = []
+
+    async def fake_page_fetch(url: str) -> str:
+        fetched.append(url)
+        return "Work format: Hybrid in Tbilisi. German language is required."
+
+    monkeypatch.setattr("job_assistant.telegram_ingestion.fetch_vacancy_page_text", fake_page_fetch)
+    result = asyncio.run(
+        fetch_telegram(
+            preferences,
+            reader=FakeTelegramReader({"analytics_jobs": [ORDINARY_VACANCY]}),
+            now=BASE_TIME + timedelta(days=1),
+            dry_run=True,
+            sleep=no_sleep,
+        )
+    )
+
+    record = result.parsed_results["analytics_jobs"][0].target_records[0]
+    assert fetched == ["https://jobs.example.test/business-analyst"]
+    assert "German language is required" in record["raw_text"]
+    vacancy = normalize_records([{"query": "telegram:test", "record": record}], preferences)[0]
+    filtered = apply_filters([vacancy], preferences)[0]
+    assert filtered.work_mode == "hybrid"
+    assert filtered.detected_city == "Tbilisi"
+    assert "explicit German language requirement" in filtered.blocker_reasons
+
+
 def test_all_history_dry_run_selects_global_newest_messages_and_sorts_eligible_targets(tmp_path):
     preferences = telegram_preferences(tmp_path, ["analytics_jobs", "jobs_it"])
     analytics_old = telegram_message(

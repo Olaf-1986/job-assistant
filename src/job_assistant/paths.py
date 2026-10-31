@@ -33,4 +33,6 @@ def output_paths(preferences: Preferences) -> dict[str, Path]:
         "telegram_failures": directory / preferences.outputs.telegram_failures_file,
         "telegram_audit": directory / preferences.outputs.telegram_audit_file,
         "telegram_shortlist": directory / preferences.outputs.telegram_shortlist_file,
+        "rvc_raw": directory / preferences.outputs.rvc_raw_file,
+        "rvc_shortlist": directory / preferences.outputs.rvc_shortlist_file,
     }

@@ -365,7 +365,7 @@ def test_qf_storage_failure_stops_other_stages_and_final_build(monkeypatch, pref
     assert "qf: partial" not in result.output
 
 
-@pytest.mark.parametrize("store", ["raw", "manual_imports", "telegram_raw"])
+@pytest.mark.parametrize("store", ["raw", "manual_imports", "telegram_raw", "rvc_raw"])
 def test_qf_damaged_store_is_fatal_and_does_not_overwrite_reports(monkeypatch, preferences, store):
     paths = seed_sources(preferences)
     calls = mock_qf_sources(monkeypatch, preferences, LinkedInFetchError("source unavailable"))

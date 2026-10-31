@@ -101,15 +101,17 @@ and stop conditions still apply. Telegram uses the window on its initial read, w
 precedence. Add `--force` only when another successful HH fetch is intentional.
 `output/combined_shortlist.md` is the canonical shortlist for the most recent completed publication: `qf ... all ...` includes all available sources,
 while `qf ... li ...` (and other source-specific aliases) limits it to the selected source and publication window.
-`shortlist --source hh|li|tg` has the same source scope; `shortlist` without `--source` uses all saved sources.
-Every shared export also refreshes `output/shortlist_hh.md`, `output/shortlist_li.md`, `output/shortlist_tg.md` as views of their respective sources. The old `output/shortlist.md` is no longer part
+`shortlist --source hh|li|tg|rvc` has the same source scope; `shortlist` without `--source` uses all saved sources.
+Every shared export also refreshes `output/shortlist_hh.md`, `output/shortlist_li.md`, `output/shortlist_tg.md`
+and `output/shortlist_rvc.md` as views of their respective sources. The old `output/shortlist.md` is no longer part
 of the pipeline. Fetch/import commands by themselves rebuild the combined view; the final step of a source-specific
 `qf` sets its requested scope. In `all` mode, `WINDOW` bounds collection/rechecking, not the age of the saved
 all-source canonical candidates. Source views apply the supplied publication window; undated records remain eligible.
 
 An available source has a valid authoritative store with eligible records, whether saved by this run or an earlier
 one. A failed, disabled or skipped refresh does not exclude its saved records from `all`. Missing stores contribute
-no records; damaged stores stop rebuilding. Fallback records have not necessarily been rechecked for freshness or continued availability.
+no records; damaged stores stop rebuilding. Reviewed saved RVC records can participate, but `qf` never starts RVC
+discovery. Fallback records have not necessarily been rechecked for freshness or continued availability.
 
 `qf all` runs HH/email, LinkedIn and Telegram independently. Source errors and LinkedIn protective stops are
 reported with their reasons; a LinkedIn stop ends that stage immediately, without retries or bypasses. Other
@@ -142,6 +144,7 @@ Combined outputs under `output/` are derived data. They are rebuilt only from th
 - latest successful `output/headhunter_raw.json`;
 - LinkedIn records stored in `output/manual_imports.json` by the extension, explicit `linkedin-fetch`, or explicit manual import.
 - Telegram records stored in `output/telegram_raw.json` by explicit `telegram-fetch` runs.
+- Reviewed full-description records in `output/rvc_raw.json`; pending RVC cards are excluded.
 
 Shared deduplication uses canonical URLs and source IDs, exact normalized descriptions, and company/title/location
 identity. It also merges different-URL reposts only when normalized company and title are exact and their substantive
@@ -152,7 +155,7 @@ Email ingestion also writes derived `output/email_candidates.json`, `output/link
 
 Telegram checkpoints and deterministic extraction failures are stored separately in `output/telegram_checkpoints.json`
 and `output/telegram_failures.json`. Rebuilds do not trust old `combined_jobs.json`. Failed or skipped HeadHunter runs
-do not replace valid LinkedIn or Telegram captures with empty output.
+do not replace valid LinkedIn, Telegram or reviewed RVC records with empty output.
 
 Both `fetch` and `fetch-all` replace the HeadHunter snapshot only after a **complete successful search**, including
 an empty result (`[]`). A failed, incomplete or skipped search preserves the preceding snapshot. Completeness requires
@@ -171,7 +174,7 @@ record is retained. Repeated imports keep one record per HH ID. These rules do n
 or complete-snapshot replacement, including a successful empty snapshot. Receipt-time ordering assumes a reliable
 local clock; HH publication dates are not used as update timestamps.
 
-Authoritative HH, manual/LinkedIn and Telegram stores are read strictly. Missing files are allowed on the first
+Authoritative HH, manual/LinkedIn, Telegram and RVC stores are read strictly. Missing files are allowed on the first
 run; existing malformed JSON, invalid record containers, incompatible source markers or invalid core fields stop
 processing with a content-free error. The original file stays in place, including when a replacement HH result is
 available. Existing wrapped/unwrapped records and legacy LinkedIn source markers remain supported. An HH record
@@ -204,7 +207,7 @@ exports use a flushed temporary file and replacement instead of truncating the d
 These sequential replacements are **not an atomic multi-file transaction**. External readers can see intermediate
 files during publication and must coordinate with writers; the journal makes interruption visible but does not give
 readers a snapshot. Run one ingestion/rebuild command at a time per output directory: the publication lock protects
-publication/recovery, not the entire read/modify/write workflow. Source-first LinkedIn/Telegram ingestion and
+publication/recovery, not the entire read/modify/write workflow. Source-first LinkedIn/Telegram/RVC ingestion and
 email/status state remain separate from the combined report publication; if ingestion stops before export, rerun
 `shortlist` to bring reports up to date with saved sources. Prepared files are flushed; directory syncing is used
 where supported. Windows/WSL file replacement is supported without renaming open temporary files, but power-loss
@@ -231,6 +234,59 @@ HeadHunter uses configured official API search groups:
 - optional OAuth through `HH_ACCESS_TOKEN` if `require_authentication: true` is configured.
 
 The connector does not use Playwright, browser automation, CAPTCHA bypasses, or live requests in tests.
+
+## RVC discovery pilot
+
+RVC is an explicitly invoked discovery source using its [public MCP](https://app.rvc.global/for-ai).
+Each invocation makes one search and returns at most ten teaser cards. RVC never runs from `fetch`, `fetch-all`,
+or `qf all`. It requires no account, API key or browser. Optional periodic collection and automatic full-description
+access remain subject to the [open questions for RVC](docs/rvc-access-questions.md); the draft has not been sent.
+
+```bash
+uv run python -m job_assistant rvc-discover --query "Business Analyst" --country GE --since-days 14 --limit 10
+uv run python -m job_assistant rvc-queue
+uv run python -m job_assistant rvc-audit
+```
+
+Use `--worldwide` for worldwide remote or `--dry-run` for a live search with no local writes. Configured accepted
+languages are passed to RVC. A country search includes every work arrangement; onsite/hybrid eligibility still
+requires the existing Tbilisi check during review. `since-days` is only an RVC discovery filter: its relative age
+and cutoff may reflect ingestion, and its inferred country labels can disagree with the vacancy description.
+A truncated response is reported without walking further result pages. Errors, access barriers and rate limits
+stop the invocation without retries or modifying successful stored candidates.
+
+Saved candidates live in `output/rvc_raw.json`. This versioned store contains discovery history, review status and
+user-provided descriptions. Pending cards never enter combined outputs or shortlists. Repeated discovery preserves
+their first-seen date and every existing review, including rejected/expired status. A malformed RVC store stops
+processing and is retained unchanged. It is not silently repaired or replaced.
+
+For an actual candidate, copy [the review example](docs/rvc-review.example.json) to an ignored file under
+`input/manual/` and replace every example value with verified vacancy information. Provide the full description,
+original publication timestamp with timezone, actual employer, work arrangement and location; confirm that the
+position is open and permits work from Georgia. An employer URL is optional and is never fetched. Missing full
+text, missing confirmations and a future publication date are rejected. Discovery time never substitutes for the
+publication date. The confirmations attest to the user's review; the software cannot verify them independently.
+
+```bash
+uv run python -m job_assistant rvc-review MASKED_ID --file input/manual/rvc-review.json --minutes 5
+uv run python -m job_assistant rvc-review MASKED_ID --reject --minutes 1
+uv run python -m job_assistant rvc-review MASKED_ID --expired --minutes 1
+uv run python -m job_assistant shortlist --source rvc --since-days 14 -n 5
+```
+
+Choose exactly one review action. `--minutes` is the total effort for this candidate, so repeating the command
+does not double-count it; omitting it preserves the previous value. Reviewed descriptions enter the shared
+normalize, deduplicate, filter, score and export
+pipeline; acceptance into the review store does not override any blocker. Rejected/expired reviews retain prior
+descriptions and block the record on subsequent rebuilds. Reviews are saved before derived exports; if export fails,
+rerun after fixing the local error. HeadHunter refreshes preserve the RVC store. The RVC view is `shortlist_rvc.md`.
+
+`rvc-audit` is local and read-only. It reports pending/rejected/expired candidates, reviewed eligibility, overlap
+with saved LinkedIn records, additional eligible records absent from other current stores, truncation and review
+minutes. These are local coverage metrics, not estimates of the whole LinkedIn catalog. The first successful saved
+search starts the two-week observation period; dry runs do not start it. Evaluation requires at least two distinct
+search dates and completed reviews. The proposed continuation threshold is three additional eligible vacancies.
+The audit advises only and never changes source configuration or schedules another search.
 
 ## LinkedIn Capture
 
