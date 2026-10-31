@@ -7,30 +7,28 @@ from .config import Preferences
 from .deduplicate import deduplicate_vacancies
 from .export import export_all
 from .filters import apply_filters
+from .headhunter_state import successful_observation
 from .linkedin_queue import linkedin_job_id
 from .models import BatchStats, NormalizedVacancy, RawRecord, with_raw_source
 from .normalize import normalize_records
 from .paths import output_paths
+from .publication import recover_publication
+from .raw_store import read_raw_store, validate_raw_records
 from .recovered_state import apply_recovered_state
 from .scoring import score_vacancies
 from .utils import read_json
 
 
 def read_headhunter_raw(preferences: Preferences) -> list[RawRecord]:
+    recover_publication(output_paths(preferences)["dir"])
     path = output_paths(preferences)["raw"]
-    if not path.exists():
-        return []
-    data = read_json(path, [])
-    return _with_source(data, "headhunter", "HeadHunter raw store") if isinstance(data, list) else []
+    return _with_source(read_raw_store(path, "headhunter"), "headhunter", "HeadHunter raw store")
 
 
 def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
+    recover_publication(output_paths(preferences)["dir"])
     path = output_paths(preferences)["manual_imports"]
-    if not path.exists():
-        return []
-    data = read_json(path, [])
-    if not isinstance(data, list):
-        return []
+    data = read_raw_store(path, "manual")
     tagged = [
         _with_source([item], "linkedin", "LinkedIn manual store")[0]
         for item in data
@@ -41,11 +39,9 @@ def read_linkedin_manual_raw(preferences: Preferences) -> list[RawRecord]:
 
 
 def read_telegram_raw(preferences: Preferences) -> list[RawRecord]:
+    recover_publication(output_paths(preferences)["dir"])
     path = output_paths(preferences)["telegram_raw"]
-    if not path.exists():
-        return []
-    data = read_json(path, [])
-    return _with_source(data, "telegram", "Telegram raw store") if isinstance(data, list) else []
+    return _with_source(read_raw_store(path, "telegram"), "telegram", "Telegram raw store")
 
 
 def rebuild_from_authoritative_sources(
@@ -74,7 +70,10 @@ def prepare_authoritative_vacancies(
     preferences: Preferences, headhunter_raw: list[RawRecord] | None = None
 ) -> tuple[list[RawRecord], list[NormalizedVacancy], int]:
     """Run the shared pipeline without exporting its derived outputs."""
-    source_raw = read_headhunter_raw(preferences) if headhunter_raw is None else headhunter_raw
+    # Even a successful replacement must not hide a damaged existing store.
+    stored_raw = read_headhunter_raw(preferences)
+    source_raw = stored_raw if headhunter_raw is None else headhunter_raw
+    validate_raw_records(source_raw, "headhunter")
     hh_raw = _dedupe_headhunter_raw(_with_source(source_raw, "headhunter", "HeadHunter input"))
     linkedin_raw = read_linkedin_manual_raw(preferences)
     telegram_raw = read_telegram_raw(preferences)
@@ -88,16 +87,29 @@ def prepare_authoritative_vacancies(
 
 def _dedupe_headhunter_raw(raw_records: list[RawRecord]) -> list[RawRecord]:
     deduped: list[RawRecord] = []
-    seen: set[str] = set()
+    positions: dict[str, int] = {}
     for item in raw_records:
         record = item.get("record", item) if isinstance(item, dict) else {}
         vacancy_id = record.get("id") if isinstance(record, dict) else None
         key = f"headhunter:{vacancy_id}" if vacancy_id is not None else str(item)
-        if key in seen:
+        if key in positions:
+            index = positions[key]
+            old_time = successful_observation(deduped[index])
+            new_time = successful_observation(item)
+            # Unknown legacy ordering is preserved, never interpreted as freshness.
+            if new_time is not None and (old_time is None or new_time > old_time):
+                deduped[index] = item
             continue
-        seen.add(key)
+        positions[key] = len(deduped)
         deduped.append(item)
     return deduped
+
+
+def merge_headhunter_raw(stored: list[RawRecord], incoming: list[RawRecord]) -> list[RawRecord]:
+    """Upsert only proven newer complete observations; keep legacy records readable."""
+    combined = [*stored, *incoming]
+    validate_raw_records(combined, "headhunter")
+    return _dedupe_headhunter_raw(combined)
 
 
 def _is_linkedin_raw(item: dict[str, Any]) -> bool:

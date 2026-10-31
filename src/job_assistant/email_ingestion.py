@@ -18,9 +18,11 @@ from dotenv import dotenv_values
 
 from .config import Preferences
 from .connectors.headhunter import HeadHunterConnector
+from .headhunter_state import is_complete_hh_detail, observed_hh_detail
 from .linkedin_queue import LEGACY_PENDING_STATUS, PENDING_STATUS, PENDING_STATUSES
 from .models import BatchStats, RawRecord, with_raw_source
 from .paths import output_paths
+from .publication import PublicationError
 from .utils import ROOT, canonical_url, normalize_space, read_json, write_json
 
 LINKEDIN_RE = re.compile(r"/jobs/view/(\d+)")
@@ -97,12 +99,23 @@ def sync_email_alerts(
                     stats.requests_made += lookup_stats.requests_made
                     stats.raw_records_received += lookup_stats.raw_records_received
                     stats.errors.extend(lookup_stats.errors)
-                    if detail is None:
+                    if (
+                        not lookup_stats.complete
+                        or lookup_stats.errors
+                        or not is_complete_hh_detail(detail, candidate["external_id"])
+                    ):
                         candidate["status"] = "hh_lookup_failed"
+                        if not lookup_stats.errors:
+                            stats.errors.append("Incomplete HeadHunter email detail; previous record retained")
                     else:
                         candidate["status"] = "imported"
                         headhunter_raw.append(
-                            {"query": "email_alert", "record": with_raw_source(detail, "headhunter", "email alert")}
+                            {
+                                "query": "email_alert",
+                                "record": with_raw_source(
+                                    observed_hh_detail(detail, "email"), "headhunter", "email alert"
+                                ),
+                            }
                         )
                 candidates_by_key[key] = candidate
             processed_uids.add(uid)
@@ -129,7 +142,12 @@ def sync_email_alerts(
             settings["mailbox"]: sorted(processed_uids, key=_uid_sort_key),
         }
         state["processed_message_ids"] = sorted(processed_message_ids)
-        _write_email_outputs(preferences, candidates, state)
+        try:
+            _write_email_outputs(preferences, candidates, state)
+        except OSError:
+            raise PublicationError(
+                "Email output write failed; stop and inspect local state before continuing."
+            ) from None
     stats.raw_records_received += len(candidates)
     return EmailSyncResult(
         candidates=candidates,

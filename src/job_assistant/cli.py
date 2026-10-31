@@ -17,6 +17,7 @@ import typer
 from pydantic import TypeAdapter, ValidationError
 from rich.console import Console
 from rich.table import Table
+from typer.core import TyperGroup
 
 from .ats import discover_greenhouse_board_token, discover_lever_site
 from .capture import run_capture_server
@@ -33,8 +34,6 @@ from .export import (
     export_channel_shortlists,
     export_deduplicated_shortlist,
     export_shortlist,
-    export_source_shortlist,
-    sorted_shortlist,
 )
 from .linkedin_fetch import LinkedInFetchError, LinkedInStopRun, fetch_pending_linkedin, run_login
 from .linkedin_queue import (
@@ -46,18 +45,52 @@ from .linkedin_queue import (
     status_counts,
     validate_linkedin_queue,
 )
-from .models import BatchStats, NormalizedVacancy
+from .models import BatchStats, FetchOutcome, NormalizedVacancy, StageResult, fetch_outcome
 from .paths import output_paths
-from .persistence import prepare_authoritative_vacancies, read_headhunter_raw, rebuild_from_authoritative_sources
+from .persistence import (
+    merge_headhunter_raw,
+    prepare_authoritative_vacancies,
+    read_headhunter_raw,
+    rebuild_from_authoritative_sources,
+)
+from .publication import PublicationError, recover_publication
+from .raw_store import StoreError, read_raw_store
 from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_statuses, mark_status, write_statuses
 from .telegram_audit import TelegramAuditResult, audit_telegram
 from .telegram_client import TelegramConnectionError, TelegramError, telegram_login
 from .telegram_ingestion import TelegramFetchResult, fetch_telegram
-from .utils import read_json, read_json_strict, write_json
+from .utils import read_json_strict, write_json
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-app = typer.Typer(help="Local job-search assistant vertical slice.")
 console = Console()
+
+
+class SourceStageExit(typer.Exit):
+    """A reported source failure; qf may continue independent stages."""
+
+    def __init__(self, stage: str, reason: str) -> None:
+        super().__init__(1)
+        self.result = StageResult(stage=stage, status="error", reason=sanitize_error(reason))
+
+
+def _fetch_stage_result(source: str, stats: BatchStats, skipped: str | None) -> StageResult:
+    outcome = fetch_outcome(stats, skipped)
+    reason = "; ".join(sanitize_error(error) for error in stats.errors) or skipped
+    if outcome is FetchOutcome.incomplete or stats.errors:
+        return StageResult(stage=source, status="error", reason=reason or "incomplete response; stored data retained")
+    return StageResult(stage=source, status="skipped" if skipped is not None else "success", reason=reason)
+
+
+class StorageErrorGroup(TyperGroup):
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except (StoreError, PublicationError) as exc:
+            console.print(f"[red]Storage error:[/red] {exc}")
+            raise typer.Exit(1) from None
+
+
+app = typer.Typer(cls=StorageErrorGroup, help="Local job-search assistant vertical slice.")
 
 
 class FetchWindow(str, Enum):
@@ -135,13 +168,14 @@ def fetch(
         "--last",
         help="Publication window: day, 2-days, 3-days, week, 2-weeks, 3-weeks, or month.",
     ),
-) -> None:
+) -> StageResult:
     """Fetch vacancies, normalize, deduplicate, score, and export outputs."""
     preferences = _load_or_exit(shortlist_size)
     raw_records, stats, skipped = _fetch_source(
         preferences, source, force, since_days=last.days if last is not None else None
     )
-    if skipped:
+    outcome = fetch_outcome(stats, skipped)
+    if outcome is FetchOutcome.skipped:
         if _source_key(source) in load_statuses(preferences):
             mark_status(
                 preferences,
@@ -153,10 +187,10 @@ def fetch(
             )
         detail = f": {stats.errors[-1]}" if stats.errors else ""
         console.print(f"[yellow]{source} skipped: {skipped}{detail}[/yellow]")
-        return
-    status = "success" if not stats.errors else "HTTP error"
+        return _fetch_stage_result(_source_key(source), stats, skipped)
+    status = "success" if outcome is FetchOutcome.complete else "incomplete"
     summary = rebuild_from_authoritative_sources(
-        preferences, stats, headhunter_raw=raw_records if status == "success" else None
+        preferences, stats, headhunter_raw=raw_records if outcome is FetchOutcome.complete else None
     )
     mark_status(
         preferences,
@@ -169,6 +203,7 @@ def fetch(
         stats.shortlist_count,
     )
     _print_summary(summary)
+    return _fetch_stage_result(_source_key(source), stats, skipped)
 
 
 @app.command("fetch-all")
@@ -180,60 +215,82 @@ def fetch_all(
         "--last",
         help="Publication window: day, 2-days, 3-days, week, 2-weeks, 3-weeks, or month.",
     ),
-) -> None:
+) -> list[StageResult]:
     """Run all enabled automatic sources with error isolation."""
     preferences = _load_or_exit(shortlist_size)
-    all_raw: list[dict] = []
+    all_raw: list[dict] | None = None
     combined_stats = BatchStats()
+    stages: list[StageResult] = []
+    source_results = []
     for source in _fetch_all_sources():
-        raw_records, stats, skipped = _fetch_source(
-            preferences, source, force, since_days=last.days if last is not None else None
-        )
+        try:
+            raw_records, stats, skipped = _fetch_source(
+                preferences, source, force, since_days=last.days if last is not None else None
+            )
+        except (
+            StoreError,
+            PublicationError,
+            OSError,
+            ValidationError,
+            json.JSONDecodeError,
+            typer.Abort,
+            typer.Exit,
+        ):
+            raise
+        except Exception as exc:
+            raw_records, stats, skipped = [], BatchStats(complete=False, errors=[sanitize_error(exc)]), None
         combined_stats.requests_made += stats.requests_made
         combined_stats.raw_records_received += stats.raw_records_received
         combined_stats.errors.extend(stats.errors)
-        if skipped:
-            mark_status(preferences, _source_key(source), skipped, 0, 0, skipped)
+        outcome = fetch_outcome(stats, skipped)
+        stages.append(_fetch_stage_result(_source_key(source), stats, skipped))
+        source_results.append((source, raw_records, stats, skipped, outcome))
+        if outcome is FetchOutcome.skipped:
             continue
-        if not stats.errors:
-            all_raw.extend(raw_records)
-        mark_status(
-            preferences,
-            _source_key(source),
-            "success" if not stats.errors else "HTTP error",
-            len(raw_records),
-            stats.requests_made,
-            stats.errors[-1] if stats.errors else None,
-        )
+        if outcome is FetchOutcome.complete:
+            all_raw = raw_records
     email_raw: list[dict] = []
     if preferences.sources.email.enabled:
+        email_count = email_requests = 0
         try:
             email_result = sync_email_alerts(preferences, since_days=last.days if last is not None else 30)
+            email_count, email_requests = len(email_result.candidates), email_result.stats.requests_made
             email_raw = email_result.headhunter_raw
             combined_stats.requests_made += email_result.stats.requests_made
             combined_stats.raw_records_received += email_result.stats.raw_records_received
             email_errors = _tag_email_errors(email_result.stats.errors)
             combined_stats.errors.extend(email_errors)
-            mark_status(
-                preferences,
-                "email",
-                "success" if not email_errors else "error",
-                len(email_result.candidates),
-                email_result.stats.requests_made,
-                email_errors[-1] if email_errors else None,
-            )
+            stages.append(_fetch_stage_result("email", email_result.stats, None))
+        except (StoreError, PublicationError, ValidationError, json.JSONDecodeError, typer.Abort, typer.Exit):
+            raise
         except Exception as exc:
             error = _tag_email_errors([exc])[0]
             combined_stats.errors.append(error)
-            mark_status(preferences, "email", "error", 0, 0, error)
-    if all_raw:
-        headhunter_raw = [*all_raw, *email_raw]
+            stages.append(StageResult(stage="email", status="error", reason=error))
+        mark_status(preferences, "email", stages[-1].status, email_count, email_requests, stages[-1].reason)
+    else:
+        stages.append(StageResult(stage="email", status="skipped", reason="disabled in configuration"))
+    if all_raw is not None:
+        headhunter_raw = merge_headhunter_raw(all_raw, email_raw)
     elif email_raw:
-        headhunter_raw = [*read_headhunter_raw(preferences), *email_raw]
+        headhunter_raw = merge_headhunter_raw(read_headhunter_raw(preferences), email_raw)
     else:
         headhunter_raw = None
     summary = rebuild_from_authoritative_sources(preferences, combined_stats, headhunter_raw=headhunter_raw)
+    # A failed publication must not trip the one-successful-run-per-day guard.
+    for source, raw_records, stats, skipped, outcome in source_results:
+        mark_status(
+            preferences,
+            _source_key(source),
+            skipped
+            if outcome is FetchOutcome.skipped
+            else ("success" if outcome is FetchOutcome.complete else "incomplete"),
+            len(raw_records),
+            stats.requests_made,
+            stats.errors[-1] if stats.errors else skipped,
+        )
     _print_summary(summary)
+    return stages
 
 
 @app.command("email-sync")
@@ -253,7 +310,7 @@ def email_sync(
     except Exception as exc:
         console.print(f"[red]Email sync failed:[/red] {sanitize_error(exc)}")
         raise typer.Exit(1) from None
-    headhunter_raw = None if dry_run else [*read_headhunter_raw(preferences), *result.headhunter_raw]
+    headhunter_raw = None if dry_run else merge_headhunter_raw(read_headhunter_raw(preferences), result.headhunter_raw)
     summary = {
         "requests_made": result.stats.requests_made,
         "raw_records_received": result.stats.raw_records_received,
@@ -447,13 +504,16 @@ def linkedin_fetch(
         max=90,
         help="Process and recheck only records in this publication/receipt window; undated records remain eligible.",
     ),
-) -> None:
+) -> StageResult:
     """Fetch queued LinkedIn vacancies through a dedicated Playwright browser profile."""
     if login:
         run_login()
         console.print("LinkedIn login window closed. Cookies remain only in the dedicated local browser profile.")
-        return
+        return StageResult(stage="linkedin", status="success")
     preferences = _load_or_exit(shortlist_size)
+    if not preferences.sources.linkedin.enabled:
+        console.print("LinkedIn skipped: disabled in configuration.")
+        return StageResult(stage="linkedin", status="skipped", reason="disabled in configuration")
     try:
         stats = fetch_pending_linkedin(
             preferences,
@@ -467,11 +527,13 @@ def linkedin_fetch(
             recheck_since_days=since_days,
         )
     except LinkedInStopRun as exc:
-        console.print(f"[red]LinkedIn fetch stopped:[/red] {exc}")
-        raise typer.Exit(1) from exc
+        if isinstance(exc.__cause__, OSError):
+            raise PublicationError("LinkedIn protective stop state could not be saved; run stopped.") from None
+        console.print(f"[red]LinkedIn fetch stopped:[/red] {sanitize_error(exc)}")
+        raise SourceStageExit("linkedin", str(exc)) from exc
     except LinkedInFetchError as exc:
-        console.print(f"[red]LinkedIn fetch failed:[/red] {exc}")
-        raise typer.Exit(1) from exc
+        console.print(f"[red]LinkedIn fetch failed:[/red] {sanitize_error(exc)}")
+        raise SourceStageExit("linkedin", str(exc)) from exc
     console.print(
         f"LinkedIn fetch: opened={stats['opened']} imported={stats['imported']} "
         f"title_prefilter_rejected={stats['title_prefilter_rejected']} "
@@ -480,6 +542,14 @@ def linkedin_fetch(
         f"recheck_expired={stats['recheck_expired']} recheck_failed={stats['recheck_failed']} "
         f"pending_outside_window={stats['pending_outside_window']} dry_run={dry_run}"
     )
+    if stats.get("errors") or stats["extraction_failed"] or stats["recheck_failed"]:
+        reason = (
+            "; ".join(sanitize_error(error) for error in stats.get("errors", []))
+            or "incomplete LinkedIn extraction/recheck"
+        )
+        console.print(f"[red]LinkedIn stage incomplete:[/red] {reason}")
+        raise SourceStageExit("linkedin", reason)
+    return StageResult(stage="linkedin", status="success")
 
 
 @app.command("telegram-login")
@@ -540,7 +610,7 @@ def telegram_fetch(
         help="With --dry-run, export one count-ranked shortlist per channel for the full --since-days window.",
     ),
     shortlist_size: int | None = typer.Option(None, "--shortlist-size", "-n", min=1, max=500),
-) -> None:
+) -> StageResult:
     """Read allowlisted joined Telegram sources through the user API."""
     if limit is not None and not dry_run:
         console.print("[red]--limit requires --dry-run so a partial history cannot advance checkpoints.[/red]")
@@ -558,6 +628,9 @@ def telegram_fetch(
         console.print("[red]--export-channel-check requires --dry-run.[/red]")
         raise typer.Exit(1)
     preferences = _load_or_exit(shortlist_size)
+    if not preferences.sources.telegram.enabled:
+        console.print("Telegram skipped: disabled in configuration.")
+        return StageResult(stage="telegram", status="skipped", reason="disabled in configuration")
     try:
         result = asyncio.run(
             fetch_telegram(
@@ -571,7 +644,7 @@ def telegram_fetch(
         )
     except TelegramError as exc:
         console.print(f"[red]Telegram fetch failed:[/red] {sanitize_error(exc)}")
-        raise typer.Exit(1) from None
+        raise SourceStageExit("telegram", str(exc)) from None
     _print_telegram_fetch(result)
     if show_targets:
         _print_telegram_targets(result.eligible_targets)
@@ -601,6 +674,11 @@ def telegram_fetch(
             role_relevant_count=sum(report.target_role_matches for report in result.source_reports.values()),
             shortlist_count=int((result.summary or {}).get("shortlist_count", 0)),
         )
+    if result.errors:
+        return StageResult(
+            stage="telegram", status="error", reason="; ".join(sanitize_error(error) for error in result.errors)
+        )
+    return StageResult(stage="telegram", status="success")
 
 
 @app.command("telegram-audit")
@@ -651,7 +729,8 @@ def import_manual(
         },
     }
     paths = output_paths(preferences)
-    existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
+    recover_publication(paths["dir"])
+    existing_raw = read_raw_store(paths["manual_imports"], "manual")
     existing_raw.append(raw)
     write_json(paths["manual_imports"], existing_raw)
     summary = rebuild_from_authoritative_sources(preferences, BatchStats(raw_records_received=1))
@@ -662,11 +741,19 @@ def import_manual(
 def quick_fetch(
     ctx: typer.Context,
     window: QuickWindow = typer.Argument(help="Lookback: 1d, 2d, 3d, 1w, 2w, 3w, or 1m."),
-    source: QuickSource = typer.Argument(help="Source: all, hh, li, or tg."),
+    source: QuickSource = typer.Argument(
+        help="all uses every valid saved source; hh/li/tg limit combined_shortlist.md to that source."
+    ),
     shortlist_size: int = typer.Argument(min=1, max=500, help="Maximum shortlist entries."),
     force: bool = typer.Option(False, "--force", help="Allow another successful HeadHunter fetch today."),
 ) -> None:
-    """Short, composable alias for source fetches and shortlist sizing."""
+    """Refresh sources and publish the canonical shortlist of this run.
+
+    With all, independent sources continue after a source error or protective stop;
+    valid saved records remain available. Stage results are printed and saved in
+    summary.json; partial failure exits 1 after final publication. Ctrl+C stops
+    everything. Storage/publication failures stop unsafe rebuilding.
+    """
     fetch_window = {
         1: FetchWindow.day,
         2: FetchWindow.two_days,
@@ -677,10 +764,30 @@ def quick_fetch(
         30: FetchWindow.month,
     }[window.days]
 
+    stages: list[StageResult] = []
+
+    def run_stage(name, callback, **kwargs):
+        try:
+            result = ctx.invoke(callback, **kwargs)
+        except SourceStageExit as exc:
+            stages.append(exc.result)
+        except (StoreError, PublicationError, OSError, ValidationError, json.JSONDecodeError):
+            console.print(f"[red]{name}: storage/publication failure; qf stopped before final shortlist.[/red]")
+            raise
+        except (typer.Abort, typer.Exit):
+            # A user abort or an unclassified CLI exit is not a recoverable source error.
+            raise
+        except Exception as exc:
+            stages.append(StageResult(stage=name, status="error", reason=sanitize_error(exc)))
+            console.print(f"[red]{name} failed:[/red] {sanitize_error(exc)}")
+        else:
+            stages.extend(result if isinstance(result, list) else [result or StageResult(stage=name, status="success")])
+
     if source is QuickSource.all:
-        ctx.invoke(fetch_all, force=force, shortlist_size=shortlist_size, last=fetch_window)
+        run_stage("headhunter/email", fetch_all, force=force, shortlist_size=shortlist_size, last=fetch_window)
     elif source is QuickSource.headhunter:
-        ctx.invoke(
+        run_stage(
+            "headhunter",
             fetch,
             source="headhunter",
             force=force,
@@ -689,7 +796,8 @@ def quick_fetch(
         )
     if source in {QuickSource.all, QuickSource.linkedin}:
         console.print("LinkedIn will process all pending queue items inside the requested lookback window.")
-        ctx.invoke(
+        run_stage(
+            "linkedin",
             linkedin_fetch,
             login=False,
             limit=None,
@@ -702,7 +810,8 @@ def quick_fetch(
             since_days=window.days,
         )
     if source in {QuickSource.all, QuickSource.telegram}:
-        ctx.invoke(
+        run_stage(
+            "telegram",
             telegram_fetch,
             since_days=window.days,
             limit=None,
@@ -722,12 +831,31 @@ def quick_fetch(
             QuickSource.telegram: "telegram",
         }[source]
     )
-    ctx.invoke(shortlist, source=shortlist_source, size=shortlist_size, since_days=window.days)
+    ctx.meta["qf_stages"] = stages
+    try:
+        ctx.invoke(shortlist, ctx=ctx, source=shortlist_source, size=shortlist_size, since_days=window.days)
+    finally:
+        ctx.meta.pop("qf_stages", None)
+    table = Table(title="qf stages")
+    for column in ("Stage", "Status", "Reason"):
+        table.add_column(column)
+    for stage in stages:
+        table.add_row(stage.stage, stage.status, stage.reason or "")
+    table.add_row("shortlist", "success", "published from valid authoritative stores")
+    console.print(table)
+    partial = any(stage.status == "error" for stage in stages)
+    console.print("qf: partial failure (exit 1)." if partial else "qf: success.")
+    if partial:
+        raise typer.Exit(1)
 
 
 def qf_app() -> None:
     """Expose quick fetch as a standalone console command."""
-    typer.run(quick_fetch)
+    try:
+        typer.run(quick_fetch)
+    except (StoreError, PublicationError) as exc:
+        console.print(f"[red]Storage error:[/red] {exc}")
+        raise SystemExit(1) from None
 
 
 @app.command()
@@ -739,35 +867,44 @@ def shortlist(
     since_days: int | None = typer.Option(
         None, "--since-days", min=1, max=90, help="Exclude source records older than this many days."
     ),
+    ctx: typer.Context = None,
 ) -> None:
-    """Rebuild outputs, limiting the canonical shortlist to the requested source."""
+    """Publish combined_shortlist.md for this run from valid authoritative stores.
+
+    By default use all saved sources, including previous successful imports.
+    --source limits the canonical shortlist; shortlist_hh/li/tg.md are source views.
+    """
     preferences = _load_or_exit(size)
     source_key = _short_source_key(source) if source is not None else None
     if source_key is not None and source_key not in {"headhunter", "linkedin", "telegram"}:
         console.print("[red]--source supports only: headhunter (hh), linkedin (li), or telegram (tg).[/red]")
         raise typer.Exit(1)
     published_since = datetime.now(UTC) - timedelta(days=since_days) if since_days is not None else None
+    stages = ctx.meta.get("qf_stages", []) if ctx is not None else []
+    stats = BatchStats(
+        stages=stages, errors=[f"{stage.stage}: {stage.reason}" for stage in stages if stage.status == "error"]
+    )
     summary = rebuild_from_authoritative_sources(
-        preferences, BatchStats(), shortlist_source=source_key, published_since=published_since
+        preferences, stats, shortlist_source=source_key, published_since=published_since
     )
     _print_summary(summary)
     if source_key is not None:
         paths = output_paths(preferences)
-        combined = read_json(paths["combined_json"], [])
-        vacancies = [NormalizedVacancy.model_validate(item) for item in combined if isinstance(item, dict)]
         shortlist_path = {
             "headhunter": paths["headhunter_shortlist"],
             "linkedin": paths["linkedin_shortlist"],
             "telegram": paths["telegram_shortlist"],
         }[source_key]
-        count = export_source_shortlist(
-            vacancies,
-            source_key,
-            preferences.run.shortlist_size,
-            shortlist_path,
-            published_since=published_since,
-        )
+        count = summary["shortlist_count"]
         console.print(f"{source_key.title()}-only shortlist: {count} records written to {shortlist_path}.")
+
+
+@app.command("recover-output")
+def recover_output() -> None:
+    """Finish an interrupted local publication without fetching any vacancies."""
+    preferences = _load_or_exit()
+    recovered = recover_publication(output_paths(preferences)["dir"])
+    console.print("Output publication recovered." if recovered else "No unfinished output publication.")
 
 
 @app.command("shortlist-deduplicated")
@@ -777,6 +914,7 @@ def shortlist_deduplicated(
     """Write vacancies absent from the combined shortlist saved by the previous invocation."""
     preferences = _load_or_exit(size)
     paths = output_paths(preferences)
+    recover_publication(paths["dir"])
     previous_path = paths["previous_combined_shortlist"]
     try:
         previous = (
@@ -795,11 +933,8 @@ def shortlist_deduplicated(
         previous,
         preferences.run.shortlist_size,
         paths["deduplicated_shortlist"],
-    )
-    current_shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size)
-    write_json(
-        paths["previous_combined_shortlist"],
-        [vacancy.model_dump(mode="json") for vacancy in current_shortlist],
+        baseline_path=paths["previous_combined_shortlist"],
+        directory=paths["dir"],
     )
     baseline = "initialized" if not previous else "advanced"
     console.print(
@@ -1014,6 +1149,8 @@ def _fetch_source(
         raise typer.BadParameter(f"Unsupported source: {source}")
     if not config.enabled:
         return [], BatchStats(), "disabled"
+    if source == "headhunter" and not any(sample.enabled for sample in preferences.sources.headhunter.samples):
+        return [], BatchStats(), "skipped_empty_configuration"
     statuses = load_statuses(preferences)
     status = statuses[source]
     if status.credential_status == "missing":

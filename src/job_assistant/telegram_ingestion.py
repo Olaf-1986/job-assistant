@@ -13,10 +13,12 @@ from .models import BatchStats, NormalizedVacancy, RawRecord
 from .normalize import normalize_records
 from .paths import output_paths
 from .persistence import rebuild_from_authoritative_sources
+from .publication import json_bytes, publish_files, recover_publication
+from .raw_store import read_raw_store
 from .scoring import score_vacancies
 from .telegram_client import TelegramError, TelegramMessage, TelegramRateLimitError, build_telegram_reader
 from .telegram_parser import TelegramParseResult, parse_telegram_message
-from .utils import read_json, utc_now, write_json
+from .utils import read_json, utc_now
 
 
 class TelegramReader(Protocol):
@@ -101,7 +103,8 @@ async def fetch_telegram(
         raise ValueError("ignore_checkpoints is only supported with dry_run")
     current_time = _as_utc(now or utc_now())
     paths = output_paths(preferences)
-    raw_store = _load_list(paths["telegram_raw"])
+    recover_publication(paths["dir"])
+    raw_store = read_raw_store(paths["telegram_raw"], "telegram")
     failures = _load_list(paths["telegram_failures"])
     checkpoints = _load_mapping(paths["telegram_checkpoints"])
     source_names = config.enabled_sources
@@ -160,11 +163,14 @@ async def fetch_telegram(
             if not dry_run:
                 raw_store = _replace_processed_messages(raw_store, parsed_results)
                 failures = _replace_failures(failures, parsed_results)
-                write_json(paths["telegram_raw"], raw_store)
-                write_json(paths["telegram_failures"], failures)
+                updates = {
+                    paths["telegram_raw"]: json_bytes(raw_store),
+                    paths["telegram_failures"]: json_bytes(failures),
+                }
                 if messages:
                     checkpoints[source] = _updated_checkpoint(checkpoints.get(source), messages, current_time)
-                    write_json(paths["telegram_checkpoints"], checkpoints)
+                    updates[paths["telegram_checkpoints"]] = json_bytes(checkpoints)
+                publish_files(paths["dir"], updates)
             if remaining is not None and not all_history:
                 remaining -= len(messages)
                 if remaining <= 0:

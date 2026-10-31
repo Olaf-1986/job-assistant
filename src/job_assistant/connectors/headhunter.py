@@ -9,6 +9,7 @@ import httpx
 
 from job_assistant.config import HeadHunterSampleConfig, Preferences
 from job_assistant.connectors.base import VacancyConnector
+from job_assistant.headhunter_state import is_complete_hh_detail, observed_hh_detail
 from job_assistant.models import BatchStats, RawRecord, with_raw_source
 from job_assistant.role_relevance import title_prefilter_matches
 
@@ -23,7 +24,7 @@ class HeadHunterConnector(VacancyConnector):
 
     def fetch(self) -> tuple[list[RawRecord], BatchStats]:
         records: list[RawRecord] = []
-        stats = BatchStats()
+        stats = BatchStats(complete=False)
         token = os.getenv(self.source_config.access_token_env, "").strip()
         if self.source_config.require_authentication and not token:
             stats.errors.append(
@@ -36,16 +37,40 @@ class HeadHunterConnector(VacancyConnector):
         )
         timeout = httpx.Timeout(self.preferences.run.request_timeout_seconds)
         samples = [sample for sample in self.source_config.samples if sample.enabled]
+        queries = self.source_config.search_strings or self.preferences.all_queries
+        if not samples or not queries:
+            stats.errors.append("HeadHunter search configuration is empty")
+            return [], stats
         with httpx.Client(headers=headers, timeout=timeout, follow_redirects=True) as client:
             for sample in samples:
-                for query in self.source_config.search_strings or self.preferences.all_queries:
+                for query in queries:
+                    pagination = None
+                    seen_ids: set[str] = set()
                     for page in range(self.preferences.run.pages_per_query):
                         data = self._request_page(client, sample, query, page, stats)
                         if data is None:
-                            continue
+                            stats.errors.append("Incomplete HeadHunter result: search page unavailable")
+                            break
                         page_records = _extract_records(data, stats, sample.name, query, page)
+                        current = _pagination(data, page, stats)
+                        if current is None:
+                            break
+                        if pagination is not None and current != pagination:
+                            stats.errors.append("Incomplete HeadHunter result: pagination changed during search")
+                            break
+                        pagination = current
+                        pages, found, per_page = current
+                        if len(page_records) != min(per_page, max(0, found - page * per_page)):
+                            stats.errors.append("Incomplete HeadHunter result: unexpected page length")
+                            break
                         stats.raw_records_received += len(page_records)
                         for record in page_records:
+                            vacancy_id = str(record["id"])
+                            if vacancy_id in seen_ids:
+                                stats.errors.append(
+                                    "Incomplete HeadHunter result: repeated vacancy across search pages"
+                                )
+                            seen_ids.add(vacancy_id)
                             detail = self._request_detail(client, record, sample, query, stats) or record
                             records.append(
                                 {
@@ -57,6 +82,11 @@ class HeadHunterConnector(VacancyConnector):
                             )
                         if self.preferences.run.request_delay_seconds:
                             time.sleep(self.preferences.run.request_delay_seconds)
+                        if page + 1 >= pages:
+                            break
+                    else:
+                        stats.errors.append("Incomplete HeadHunter result: configured page limit reached")
+        stats.complete = not stats.errors
         return records, stats
 
     def _request_page(
@@ -103,8 +133,8 @@ class HeadHunterConnector(VacancyConnector):
                     stats.errors.append(message)
                     return None
                 time.sleep(min(2**attempt, 8))
-            except ValueError as exc:
-                message = f"Invalid JSON from HeadHunter for sample={sample.name!r} query={query!r} page={page}: {exc}"
+            except ValueError:
+                message = "Invalid JSON from HeadHunter; contents omitted"
                 LOGGER.warning(message)
                 stats.errors.append(message)
                 return None
@@ -130,7 +160,10 @@ class HeadHunterConnector(VacancyConnector):
             response = client.get(detail_url)
             response.raise_for_status()
             detail = response.json()
-            return detail if isinstance(detail, dict) else record
+            if not is_complete_hh_detail(detail, str(vacancy_id)):
+                stats.errors.append("Incomplete HeadHunter result: malformed vacancy detail; contents omitted")
+                return record
+            return observed_hh_detail(detail, "search")
         except (httpx.HTTPError, ValueError) as exc:
             message = (
                 f"HeadHunter detail request failed for sample={sample.name!r} query={query!r} id={vacancy_id!r}: "
@@ -141,7 +174,7 @@ class HeadHunterConnector(VacancyConnector):
             return record
 
     def fetch_vacancy_by_id(self, vacancy_id: str) -> tuple[dict[str, Any] | None, BatchStats]:
-        stats = BatchStats()
+        stats = BatchStats(complete=False)
         token = os.getenv(self.source_config.access_token_env, "").strip()
         if self.source_config.require_authentication and not token:
             stats.errors.append(
@@ -160,10 +193,11 @@ class HeadHunterConnector(VacancyConnector):
                 response = client.get(detail_url)
                 response.raise_for_status()
                 data = response.json()
-                if isinstance(data, dict):
+                if is_complete_hh_detail(data, vacancy_id):
                     stats.raw_records_received = 1
-                    return data, stats
-                stats.errors.append(f"HeadHunter detail response for id={vacancy_id!r} was not an object")
+                    stats.complete = True
+                    return observed_hh_detail(data, "detail"), stats
+                stats.errors.append("Malformed HeadHunter detail response; contents omitted")
             except (httpx.HTTPError, ValueError) as exc:
                 message = (
                     f"HeadHunter detail request failed for email candidate id={vacancy_id!r}: {_format_http_error(exc)}"
@@ -210,15 +244,24 @@ def _format_http_error(exc: Exception) -> str:
 def _extract_records(data: Any, stats: BatchStats, sample: str, query: str, page: int) -> list[dict[str, Any]]:
     if isinstance(data, dict) and isinstance(data.get("items"), list):
         items = data["items"]
-        records = [item for item in items if isinstance(item, dict)]
+        records = []
         for index, item in enumerate(items):
-            if not isinstance(item, dict):
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get("id"), (str, int))
+                and not isinstance(item.get("id"), bool)
+                and str(item["id"]).strip()
+                and isinstance(item.get("name"), str)
+                and item["name"].strip()
+            ):
                 message = (
                     f"HeadHunter response warning for sample={sample!r} query={query!r} page={page}: "
-                    f"malformed non-object item at index {index}"
+                    f"malformed item at index {index}; contents omitted"
                 )
                 LOGGER.warning(message)
                 stats.errors.append(message)
+            else:
+                records.append(item)
         return records
     message = (
         f"HeadHunter response warning for sample={sample!r} query={query!r} page={page}: "
@@ -227,3 +270,22 @@ def _extract_records(data: Any, stats: BatchStats, sample: str, query: str, page
     LOGGER.warning(message)
     stats.errors.append(message)
     return []
+
+
+def _pagination(data: Any, page: int, stats: BatchStats) -> tuple[int, int, int] | None:
+    fields = ("page", "pages", "found", "per_page")
+    valid = isinstance(data, dict) and all(type(data.get(key)) is int for key in fields)
+    if valid:
+        pages, found, per_page = data["pages"], data["found"], data["per_page"]
+        valid = (
+            data["page"] == page
+            and pages >= 0
+            and found >= 0
+            and per_page > 0
+            and (pages in (0, 1) if found == 0 else pages == (found + per_page - 1) // per_page)
+            and (page == 0 if found == 0 else page < pages)
+        )
+    if not valid:
+        stats.errors.append("Incomplete HeadHunter result: missing, inconsistent or truncated pagination")
+        return None
+    return pages, found, per_page

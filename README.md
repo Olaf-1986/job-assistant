@@ -99,11 +99,26 @@ shortlist candidates (and enough replacements for any closed entries), checks th
 `linkedin-fetch --recheck-shortlist`; optionally pair it with `--since-days DAYS`. Normal LinkedIn page delays
 and stop conditions still apply. Telegram uses the window on its initial read, while existing checkpoints still take
 precedence. Add `--force` only when another successful HH fetch is intentional.
-`output/combined_shortlist.md` is the canonical shortlist for the most recent run: `qf ... all ...` includes all sources,
+`output/combined_shortlist.md` is the canonical shortlist for the most recent completed publication: `qf ... all ...` includes all available sources,
 while `qf ... li ...` (and other source-specific aliases) limits it to the selected source and publication window.
-Source-specific commands also write
-`output/shortlist_hh.md`, `output/shortlist_li.md`, or `output/shortlist_tg.md`; the old `output/shortlist.md` is no
-longer part of the pipeline.
+`shortlist --source hh|li|tg` has the same source scope; `shortlist` without `--source` uses all saved sources.
+Every shared export also refreshes `output/shortlist_hh.md`, `output/shortlist_li.md`, `output/shortlist_tg.md` as views of their respective sources. The old `output/shortlist.md` is no longer part
+of the pipeline. Fetch/import commands by themselves rebuild the combined view; the final step of a source-specific
+`qf` sets its requested scope. In `all` mode, `WINDOW` bounds collection/rechecking, not the age of the saved
+all-source canonical candidates. Source views apply the supplied publication window; undated records remain eligible.
+
+An available source has a valid authoritative store with eligible records, whether saved by this run or an earlier
+one. A failed, disabled or skipped refresh does not exclude its saved records from `all`. Missing stores contribute
+no records; damaged stores stop rebuilding. Fallback records have not necessarily been rechecked for freshness or continued availability.
+
+`qf all` runs HH/email, LinkedIn and Telegram independently. Source errors and LinkedIn protective stops are
+reported with their reasons; a LinkedIn stop ends that stage immediately, without retries or bypasses. Other
+independent stages continue, then the final shortlist is built from valid saved stores. The console and final
+`summary.json` record each stage as `success`, `skipped` or `error`, with overall `status: partial` and exit code 1
+if any stage failed. With no errors the exit code is 0, including intentional skips. Source-specific `qf` uses the
+same rule and can publish its saved fallback while returning 1. Ctrl+C or an explicit abort stops the whole command;
+storage/publication failures also stop it before any unsafe final rebuild. Earlier completed source writes remain
+saved. A final publication failure retains the publication journal described below and never reports partial success.
 
 The same temporary shortlist override is also available as `fetch -n SIZE`, `fetch-all -n SIZE`,
 `linkedin-fetch -n SIZE`, `telegram-fetch -n SIZE`, and `shortlist -n SIZE`.
@@ -122,7 +137,7 @@ through `fetch` or `fetch-all`.
 
 ## Persistence
 
-Output files under `output/` are derived data. Combined outputs are rebuilt only from:
+Combined outputs under `output/` are derived data. They are rebuilt only from these authoritative stores:
 
 - latest successful `output/headhunter_raw.json`;
 - LinkedIn records stored in `output/manual_imports.json` by the extension, explicit `linkedin-fetch`, or explicit manual import.
@@ -138,6 +153,63 @@ Email ingestion also writes derived `output/email_candidates.json`, `output/link
 Telegram checkpoints and deterministic extraction failures are stored separately in `output/telegram_checkpoints.json`
 and `output/telegram_failures.json`. Rebuilds do not trust old `combined_jobs.json`. Failed or skipped HeadHunter runs
 do not replace valid LinkedIn or Telegram captures with empty output.
+
+Both `fetch` and `fetch-all` replace the HeadHunter snapshot only after a **complete successful search**, including
+an empty result (`[]`). A failed, incomplete or skipped search preserves the preceding snapshot. Completeness requires
+consistent pagination and all requested pages and relevant vacancy details. Reaching `pages_per_query` before the
+last page, a truncated API result, malformed records, a page failure or a detail failure makes the whole search
+incomplete. The configured page cap is never silently expanded. Narrow the queries/window or adjust the cap when
+necessary. Successfully retrieved email HH records are added to the new complete snapshot or to the preserved one.
+The daily successful-run status is recorded only after the resulting outputs have been published.
+
+Same-ID HH updates use explicit successful-response metadata (`__hh_response`: origin, completeness and UTC
+receipt time) recorded only after validating a full API detail response. The newer successful observation wins
+in search/email merges regardless of list order; errors, incomplete details or unverified observations cannot
+replace a proven successful record. A verified full response can replace a legacy record without metadata.
+Legacy records remain readable; when neither observation proves freshness (or receipt times tie), the existing
+record is retained. Repeated imports keep one record per HH ID. These rules do not change cross-source deduplication
+or complete-snapshot replacement, including a successful empty snapshot. Receipt-time ordering assumes a reliable
+local clock; HH publication dates are not used as update timestamps.
+
+Authoritative HH, manual/LinkedIn and Telegram stores are read strictly. Missing files are allowed on the first
+run; existing malformed JSON, invalid record containers, incompatible source markers or invalid core fields stop
+processing with a content-free error. The original file stays in place, including when a replacement HH result is
+available. Existing wrapped/unwrapped records and legacy LinkedIn source markers remain supported. An HH record
+without a title is rejected at the read boundary instead of being silently dropped by normalization. Repair invalid
+data before retrying.
+The older `read_json` quarantine/fallback behavior remains limited to its other callers, such as derived queue/status
+and checkpoint state; it is not used to recover these authoritative stores.
+
+`export_all` prepares a complete publication before replacing any destination: HH raw, normalized/combined JSON,
+both CSV files, canonical and source-specific shortlists, blocked/role-review Markdown and summary. Every source
+view is refreshed, including empty ones. The publication keeps prepared bytes and checksums under
+`output/.publication-stage-*` and writes `output/.publication.json` before any replacement. Summary is replaced last.
+A write/replace failure or process interruption after that point leaves the journal, so mixed results are detectable.
+The next authoritative read/rebuild finishes **the same prepared set** before proceeding. Recovery validates every
+staged file first, then repeats the replacements; it is safe to retry after another interruption. It never rebuilds
+HH from a possibly mixed combined output. Recovery can also be invoked without any vacancy collection:
+
+```bash
+uv run python -m job_assistant recover-output
+```
+
+Do not use reports while `.publication.json` exists, or delete the journal or its referenced staging directory.
+If either is damaged or missing data, automatic recovery stops without further replacements; restore the complete
+staging set from a backup before retrying. Interrupted preparation may leave unreferenced staging directories, but
+does not change the published files. A leftover `.publication.lock` file is normal: the operating-system lock is
+released on process exit. The deduplicated shortlist and its comparison baseline use the same publication protocol;
+Telegram raw/failure/checkpoint updates and each channel-check report set also publish together. Standalone Markdown
+exports use a flushed temporary file and replacement instead of truncating the destination.
+
+These sequential replacements are **not an atomic multi-file transaction**. External readers can see intermediate
+files during publication and must coordinate with writers; the journal makes interruption visible but does not give
+readers a snapshot. Run one ingestion/rebuild command at a time per output directory: the publication lock protects
+publication/recovery, not the entire read/modify/write workflow. Source-first LinkedIn/Telegram ingestion and
+email/status state remain separate from the combined report publication; if ingestion stops before export, rerun
+`shortlist` to bring reports up to date with saved sources. Prepared files are flushed; directory syncing is used
+where supported. Windows/WSL file replacement is supported without renaming open temporary files, but power-loss
+durability depends on the filesystem and platform (portable directory syncing is unavailable on Windows). The
+journal is recovery state, not a substitute for backups.
 
 ## HeadHunter
 

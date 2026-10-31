@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -60,7 +61,14 @@ class NormalizedVacancy(BaseModel):
     requires_manual_location_review: bool = False
 
 
+class StageResult(BaseModel):
+    stage: str
+    status: Literal["success", "skipped", "error"]
+    reason: str | None = None
+
+
 class BatchStats(BaseModel):
+    complete: bool = True
     requests_made: int = 0
     raw_records_received: int = 0
     duplicates_merged: int = 0
@@ -70,6 +78,20 @@ class BatchStats(BaseModel):
     card_prefilter_count: int = 0
     opened_vacancy_count: int = 0
     manual_review_count: int = 0
+    stages: list[StageResult] = Field(default_factory=list)
+
+
+class FetchOutcome(str, Enum):
+    complete = "complete"
+    incomplete = "incomplete"
+    skipped = "skipped"
+
+
+def fetch_outcome(stats: BatchStats, skipped: str | None) -> FetchOutcome:
+    """Completion is independent of whether a successful result contains records."""
+    if skipped is not None:
+        return FetchOutcome.skipped
+    return FetchOutcome.complete if stats.complete and not stats.errors else FetchOutcome.incomplete
 
 
 class SourceStatus(BaseModel):

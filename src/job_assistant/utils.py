@@ -35,12 +35,17 @@ def ensure_directory(path: Path) -> None:
 
 
 def write_json(path: Path, data: Any) -> None:
-    ensure_directory(path.parent)
     payload = json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    write_bytes(path, payload.encode("utf-8"))
+
+
+def write_bytes(path: Path, payload: bytes) -> None:
+    """Replace one file after flushing its complete contents to a sibling file."""
+    ensure_directory(path.parent)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+            "wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
         ) as handle:
             temporary_path = Path(handle.name)
             handle.write(payload)

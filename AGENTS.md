@@ -51,7 +51,7 @@ Tests must not use live network or IMAP access, browser sessions, credentials, `
 - Preserve idempotency for repeated email ingestion, duplicate URLs/job IDs, repeated LinkedIn processing, and Telegram message/vacancy identities.
 - Preserve compatibility with existing persisted records, including the legacy LinkedIn `manual_capture_required` queue status.
 - Never silently lose or destructively replace successful stored data. Failed or skipped HeadHunter/email work must not erase valid HeadHunter, LinkedIn, or Telegram data; HeadHunter refreshes must preserve LinkedIn and Telegram captures.
-- Use the repository's existing persistence and write helpers and preserve their current safe-write behavior. Do not claim general atomic writes unless current code and tests establish them; atomic persistence is not currently a documented repository-wide guarantee.
+- Use strict readers for authoritative stores and the shared staged publication/journal helpers for related output sets. Never discard a pending publication journal or its staging files; recover it before rebuilding. Sequential file replacements are not an atomic multi-file transaction. See README Persistence for the scoped recovery guarantees and single-writer limitation.
 
 ## Security and filesystem boundaries
 

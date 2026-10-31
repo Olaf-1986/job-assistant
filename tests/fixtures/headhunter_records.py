@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 HEADHUNTER_RESPONSE = {
+    "page": 0,
+    "pages": 1,
+    "found": 2,
+    "per_page": 100,
     "items": [
         {
             "id": "123",

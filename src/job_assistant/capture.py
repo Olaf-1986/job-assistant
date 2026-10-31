@@ -23,7 +23,9 @@ from .linkedin_queue import (
 from .models import BatchStats
 from .paths import output_paths
 from .persistence import rebuild_from_authoritative_sources
-from .utils import ROOT, read_json, write_json
+from .publication import PublicationError, recover_publication
+from .raw_store import StoreError, read_raw_store
+from .utils import ROOT, write_json
 
 TOKEN_PATH = ROOT / "data" / "capture_token"
 MAX_TEXT_LENGTH = 200_000
@@ -85,6 +87,8 @@ def create_app(allowed_origin: str | None = None) -> FastAPI:
                 return process_manual_capture(preferences, payload, auto_open_next=True)
         except LinkedInQueueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (StoreError, PublicationError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from None
 
     return app
 
@@ -101,7 +105,8 @@ def process_manual_capture(
             record["requirements_text"] = _requirements_text_from_content(str(record.get("visible_text") or ""), None)
     raw = {"query": "manual_capture", "record": {"__source": payload.source_label, **record}}
     paths = output_paths(preferences)
-    existing_raw = read_json(paths["manual_imports"], []) if paths["manual_imports"].exists() else []
+    recover_publication(paths["dir"])
+    existing_raw = read_raw_store(paths["manual_imports"], "manual")
     queue_result: dict[str, object] = {"matched": False, "job_id": None, "queue_id": None}
     duplicate = False
     if payload.source_label == "linkedin":

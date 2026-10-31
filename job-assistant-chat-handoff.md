@@ -115,8 +115,23 @@ Combined output is derived only from the latest successful HeadHunter raw store,
 Playwright, or manual captures, and persisted Telegram raw records. An old `combined_jobs.json` is never an
 authoritative input.
 
-`combined_shortlist.md` is the sole canonical all-source Markdown shortlist. Source-attributed views are written to
+`combined_shortlist.md` is the canonical Markdown shortlist of the latest completed publication. `qf all` and
+unscoped `shortlist` include all available saved sources; `qf hh|li|tg` and `shortlist --source` restrict it to the
+selected source. Every shared export refreshes the source-attributed views
 `shortlist_hh.md`, `shortlist_li.md`, and `shortlist_tg.md`; the legacy generic `shortlist.md` is not written.
+Available means valid authoritative stored data passing the shared pipeline, including earlier successful imports
+when this run's source refresh failed, was disabled or was skipped. Missing stores are empty; damaged stores stop
+rebuilding. Saved fallback records may be stale.
+The `qf` window scopes collection/rechecking and source-specific candidates/views; the all-source canonical candidate
+pool is not date-trimmed. Undated records remain eligible.
+
+`qf all` records independent HH, email, LinkedIn and Telegram stage results. A source error or LinkedIn protective
+stop ends that stage without bypass/retry and allows other sources and final rebuilding from valid stores.
+Console output and the final `summary.json` contain `success`/`skipped`/`error` stages and an overall `success` or
+`partial` status. Any error yields exit 1 after publication; intentional skips alone yield 0. Source-specific `qf`
+also publishes the selected saved fallback and exits 1 on a source failure. Ctrl+C/abort stops the whole command.
+Authoritative-store damage and publication failures are fatal; they never become an apparently successful fallback
+rebuild. Earlier source writes/publications can already have completed before a later stage aborts.
 `shortlist-deduplicated` computes current candidates from authoritative stores, excludes identities found in the
 combined-shortlist baseline saved by its previous invocation, writes `deduplicated_shortlist.md`, and then advances
 the JSON baseline. That baseline is comparison state only and is never an authoritative vacancy input.
@@ -124,6 +139,28 @@ the JSON baseline. That baseline is comparison state only and is never an author
 HeadHunter refreshes preserve LinkedIn and Telegram captures. Failed or skipped HeadHunter/email work does not erase
 successful stored data. Repeated email ingestion, LinkedIn processing, Telegram message identities, vacancy IDs, and
 URLs remain idempotent.
+
+HeadHunter completion is explicit and independent of result length. Both fetch commands replace the snapshot on a
+complete success, including `[]`, and retain the old snapshot on errors, incomplete pagination/details, configured
+page-cap truncation or skips. Pagination stops at its validated last page. HH success status follows publication.
+Same-ID merges use `__hh_response` metadata stamped only on validated successful full API details (search/detail/email
+origin and UTC receipt time). Newer proven responses replace older ones, independent of list order; failed/incomplete
+responses do not replace successful records. Legacy records without metadata remain supported and yield to proven
+full responses; unproven/tied freshness retains the existing record. Reimport remains idempotent by HH ID.
+This uses the local clock, not HH publication dates, and leaves cross-source deduplication unchanged.
+
+HH/manual/Telegram raw reads now validate JSON structure, source identity and core fields without moving or repairing
+invalid files. Missing stores are valid first-run state. Legacy wrappers
+and LinkedIn markers remain compatible. Even a new HH replacement does not bypass validation of the old store.
+Derived-state `read_json` recovery policies remain separate.
+
+The complete export bundle (including authoritative HH, JSON, CSV, all shortlist views, review/blocked Markdown and
+summary) uses staged bytes, checksums and `.publication.json`. Recovery rolls the saved bundle forward before
+authoritative reads, or through local `recover-output`; a damaged journal/staging set blocks recovery. Summary is
+last. Deduplicated report/baseline, Telegram raw/checkpoints/failures and channel-check report sets use the same
+mechanism. Sequential replacements are not an atomic set: readers can see intermediate files, the whole ingestion
+workflow requires a single writer, source-first ingestion can precede report export, and power-loss durability is
+filesystem-dependent. See README Persistence for recovery instructions and exact limits.
 
 ## Scope Boundaries
 

@@ -12,6 +12,8 @@ from typing import Any
 
 from .config import Preferences
 from .paths import output_paths
+from .publication import recover_publication
+from .raw_store import read_raw_store
 from .utils import read_json, write_json
 
 LINKEDIN_JOB_RE = re.compile(r"/jobs/view/(\d+)")
@@ -142,11 +144,10 @@ def update_queue_after_capture(
 
 
 def manual_import_has_linkedin_job(manual_imports_path: Path, job_id: str | None) -> bool:
+    recover_publication(manual_imports_path.parent)
     if not job_id or not manual_imports_path.exists():
         return False
-    data = read_json(manual_imports_path, [])
-    if not isinstance(data, list):
-        return False
+    data = read_raw_store(manual_imports_path, "manual")
     canonical = canonical_linkedin_url(job_id)
     for item in data:
         record = item.get("record", item) if isinstance(item, dict) else {}
@@ -162,11 +163,10 @@ def manual_import_has_linkedin_job(manual_imports_path: Path, job_id: str | None
 def mark_linkedin_manual_expired(preferences: Preferences, job_id: str, *, checked_at: str | None = None) -> bool:
     """Persist an observed closed status on the authoritative LinkedIn capture."""
     path = output_paths(preferences)["manual_imports"]
+    recover_publication(output_paths(preferences)["dir"])
     if not path.exists():
         return False
-    data = read_json(path, [])
-    if not isinstance(data, list):
-        return False
+    data = read_raw_store(path, "manual")
     changed = False
     checked_at = checked_at or datetime.now(UTC).isoformat()
     updated: list[Any] = []
@@ -252,6 +252,7 @@ def update_queue_processed(preferences: Preferences, job_id: str, outcome: dict[
 
 def linkedin_pipeline_outcome(preferences: Preferences, job_id: str) -> dict[str, Any] | None:
     paths = output_paths(preferences)
+    recover_publication(paths["dir"])
     if not paths["combined_json"].exists():
         return None
     data = read_json(paths["combined_json"], [])

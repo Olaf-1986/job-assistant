@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import html
+import io
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -14,7 +15,9 @@ from .deduplicate import vacancies_match
 from .errors import sanitize_error
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
-from .utils import ensure_directory, write_json
+from .publication import PublicationError, json_bytes, publish_files, recover_publication
+from .raw_store import read_raw_store, validate_raw_records
+from .utils import ensure_directory, write_bytes
 
 
 def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[NormalizedVacancy]:
@@ -91,7 +94,7 @@ def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path) 
     """Write an eligible score/date-sorted Markdown shortlist."""
     shortlist = sorted_shortlist(vacancies, size)
     ensure_directory(path.parent)
-    path.write_text(_shortlist_markdown(shortlist), encoding="utf-8")
+    write_bytes(path, _shortlist_markdown(shortlist).encode("utf-8"))
     return len(shortlist)
 
 
@@ -100,6 +103,9 @@ def export_deduplicated_shortlist(
     previous_shortlist: list[NormalizedVacancy],
     size: int,
     path: Path,
+    *,
+    baseline_path: Path | None = None,
+    directory: Path | None = None,
 ) -> int:
     """Write the highest-ranked vacancies absent from the previous combined shortlist."""
     new_vacancies = [
@@ -107,7 +113,19 @@ def export_deduplicated_shortlist(
         for vacancy in vacancies
         if not any(vacancies_match(vacancy, previous) for previous in previous_shortlist)
     ]
-    return export_shortlist(new_vacancies, size, path)
+    if baseline_path is None:
+        return export_shortlist(new_vacancies, size, path)
+    shortlist = sorted_shortlist(new_vacancies, size)
+    publish_files(
+        directory or path.parent,
+        {
+            path: _shortlist_markdown(shortlist).encode("utf-8"),
+            baseline_path: json_bytes(
+                [vacancy.model_dump(mode="json") for vacancy in sorted_shortlist(vacancies, size)]
+            ),
+        },
+    )
+    return len(shortlist)
 
 
 def export_channel_shortlists(
@@ -122,12 +140,13 @@ def export_channel_shortlists(
         key=lambda channel: (-len(vacancies_by_channel[channel]), channel.casefold()),
     )
     exported: list[tuple[str, int, Path]] = []
+    files: dict[Path, bytes] = {}
     width = max(3, len(str(len(ranked))))
     for rank, channel in enumerate(ranked, start=1):
         vacancies = vacancies_by_channel[channel]
         safe_channel = re.sub(r"[^a-zA-Z0-9_]+", "_", channel).strip("_") or "unknown"
         path = directory / f"{rank:0{width}d}_{len(vacancies):04d}_{safe_channel}.md"
-        export_shortlist(vacancies, len(vacancies), path)
+        files[path] = _shortlist_markdown(sorted_shortlist(vacancies, len(vacancies))).encode("utf-8")
         exported.append((channel, len(vacancies), path))
 
     index_lines = ["# Telegram channel check", "", "Sorted by passed-vacancy count (descending).", ""]
@@ -135,7 +154,8 @@ def export_channel_shortlists(
         error = channel_errors.get(channel)
         status = f" — {error}" if error else ""
         index_lines.append(f"- {count}: [@{channel}]({path.name}){status}")
-    (directory / "index.md").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
+    files[directory / "index.md"] = ("\n".join(index_lines) + "\n").encode("utf-8")
+    publish_files(directory, files)
     return exported
 
 
@@ -150,7 +170,27 @@ def export_all(
     published_since: datetime | None = None,
 ) -> dict[str, Any]:
     paths = output_paths(preferences)
-    ensure_directory(paths["dir"])
+    recover_publication(paths["dir"])
+    read_raw_store(paths["raw"], "headhunter")
+    read_raw_store(paths["manual_imports"], "manual")
+    read_raw_store(paths["telegram_raw"], "telegram")
+    validate_raw_records(raw_records, "headhunter")
+    keys = (
+        "raw",
+        "normalized",
+        "combined_json",
+        "csv",
+        "combined_csv",
+        "combined_shortlist",
+        "blocked",
+        "role_review",
+        "headhunter_shortlist",
+        "linkedin_shortlist",
+        "telegram_shortlist",
+        "summary",
+    )
+    if len({paths[key].resolve() for key in keys}) != len(keys):
+        raise PublicationError("Output publication paths must be distinct; correct the configuration before retrying.")
     candidates = (
         source_shortlist_candidates(vacancies, shortlist_source, published_since=published_since)
         if shortlist_source is not None
@@ -170,14 +210,6 @@ def export_all(
         and not v.requires_manual_role_review
         for v in vacancies
     )
-    write_json(paths["raw"], raw_records)
-    write_json(paths["normalized"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-    write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-    _write_csv(paths["csv"], vacancies)
-    _write_csv(paths["combined_csv"], vacancies)
-    paths["combined_shortlist"].write_text(_shortlist_markdown(shortlist), encoding="utf-8")
-    paths["blocked"].write_text(_blocked_markdown(blocked), encoding="utf-8")
-    paths["role_review"].write_text(_role_review_markdown(role_review), encoding="utf-8")
     summary = {
         "run_timestamp": datetime.now().astimezone().isoformat(),
         "source": _source_name(vacancies, raw_records, preferences),
@@ -195,11 +227,44 @@ def export_all(
         "warning_count": sum(len(vacancy.warnings) for vacancy in vacancies),
         "errors": [sanitize_error(error) for error in stats.errors],
     }
-    write_json(paths["summary"], summary)
+    if stats.stages:
+        summary["status"] = "partial" if any(stage.status == "error" for stage in stats.stages) else "success"
+        summary["stages"] = [
+            {**stage.model_dump(), "reason": sanitize_error(stage.reason) if stage.reason else None}
+            for stage in stats.stages
+        ]
+    normalized = json_bytes([vacancy.model_dump(mode="json") for vacancy in vacancies])
+    csv_payload = _csv_bytes(vacancies)
+    files = {
+        paths["raw"]: json_bytes(raw_records),
+        paths["normalized"]: normalized,
+        paths["combined_json"]: normalized,
+        paths["csv"]: csv_payload,
+        paths["combined_csv"]: csv_payload,
+        paths["combined_shortlist"]: _shortlist_markdown(shortlist).encode("utf-8"),
+        paths["blocked"]: _blocked_markdown(blocked).encode("utf-8"),
+        paths["role_review"]: _role_review_markdown(role_review).encode("utf-8"),
+    }
+    # Source views belong to the same publication, including empty views.
+    for source, key in (
+        ("headhunter", "headhunter_shortlist"),
+        ("linkedin", "linkedin_shortlist"),
+        ("telegram", "telegram_shortlist"),
+    ):
+        attributed = source_shortlist_candidates(vacancies, source, published_since=published_since)
+        files[paths[key]] = _shortlist_markdown(sorted_shortlist(attributed, preferences.run.shortlist_size)).encode(
+            "utf-8"
+        )
+    files[paths["summary"]] = json_bytes(summary)
+    publish_files(paths["dir"], files)
     return summary
 
 
 def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
+    write_bytes(path, _csv_bytes(vacancies))
+
+
+def _csv_bytes(vacancies: list[NormalizedVacancy]) -> bytes:
     fields = [
         "score",
         "blocker",
@@ -230,12 +295,13 @@ def _write_csv(path: Path, vacancies: list[NormalizedVacancy]) -> None:
         "source",
         "sources",
     ]
-    with path.open("w", encoding="utf-8", newline="") as handle:
+    with io.StringIO(newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for vacancy in vacancies:
             row = vacancy.model_dump(mode="json")
             writer.writerow({field: _csv_value(row.get(field)) for field in fields})
+        return handle.getvalue().encode("utf-8")
 
 
 def _csv_value(value: Any) -> str:

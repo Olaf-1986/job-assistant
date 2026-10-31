@@ -119,7 +119,11 @@ def test_email_sync_deduplicates_messages_urls_and_is_idempotent(monkeypatch, tm
         return FakeIMAP(messages)
 
     def hh_lookup(vacancy_id: str):
-        record = {**HEADHUNTER_RESPONSE["items"][0], "id": vacancy_id}
+        record = {
+            **HEADHUNTER_RESPONSE["items"][0],
+            "id": vacancy_id,
+            "description": "Full business analyst requirements.",
+        }
         return record, BatchStats(requests_made=1, raw_records_received=1)
 
     first = sync_email_alerts(preferences, since_days=30, imap_factory=factory, hh_lookup=hh_lookup)
@@ -171,7 +175,10 @@ def test_email_sync_uses_body_peek_and_does_not_change_flags(monkeypatch, tmp_pa
         preferences,
         since_days=30,
         imap_factory=factory,
-        hh_lookup=lambda vacancy_id: (HEADHUNTER_RESPONSE["items"][0], BatchStats()),
+        hh_lookup=lambda vacancy_id: (
+            {**HEADHUNTER_RESPONSE["items"][0], "description": "Full business analyst requirements."},
+            BatchStats(),
+        ),
     )
 
     commands = FakeIMAP.instances[0].commands
@@ -212,7 +219,7 @@ def test_email_hh_candidates_flow_through_existing_pipeline(monkeypatch, tmp_pat
         since_days=30,
         imap_factory=lambda host, port: FakeIMAP(messages),
         hh_lookup=lambda vacancy_id: (
-            HEADHUNTER_RESPONSE["items"][0],
+            {**HEADHUNTER_RESPONSE["items"][0], "description": "Full business analyst requirements."},
             BatchStats(requests_made=1, raw_records_received=1),
         ),
     )

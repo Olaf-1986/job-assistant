@@ -64,6 +64,8 @@ def test_quick_fetch_all_composes_explicit_source_workflows():
     calls = []
 
     class RecordingContext:
+        meta = {}
+
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
@@ -83,6 +85,8 @@ def test_quick_fetch_hh_does_not_run_email_or_manual_sources():
     calls = []
 
     class RecordingContext:
+        meta = {}
+
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
@@ -100,6 +104,8 @@ def test_quick_fetch_li_builds_linkedin_only_shortlist():
     calls = []
 
     class RecordingContext:
+        meta = {}
+
         def invoke(self, callback, **kwargs):
             calls.append((callback, kwargs))
 
@@ -109,7 +115,11 @@ def test_quick_fetch_li_builds_linkedin_only_shortlist():
     assert calls[0][1]["limit"] is None
     assert calls[0][1]["recheck_shortlist"] is True
     assert calls[0][1]["since_days"] == 7
-    assert calls[-1][1] == {"source": "linkedin", "size": 20, "since_days": 7}
+    assert {key: value for key, value in calls[-1][1].items() if key != "ctx"} == {
+        "source": "linkedin",
+        "size": 20,
+        "since_days": 7,
+    }
 
 
 def test_shortlist_size_override_is_temporary(monkeypatch, tmp_path):
@@ -213,8 +223,9 @@ def test_headhunter_source_shortlist_has_a_dedicated_output(monkeypatch, tmp_pat
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
 
     def fake_rebuild(*args, **kwargs):
-        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-        return {}
+        from job_assistant.export import export_all
+
+        return export_all([], vacancies, args[0], args[1], [], **kwargs)
 
     monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
 
@@ -222,7 +233,7 @@ def test_headhunter_source_shortlist_has_a_dedicated_output(monkeypatch, tmp_pat
 
     assert result.exit_code == 0, result.output
     assert "HH Analyst" in paths["headhunter_shortlist"].read_text(encoding="utf-8")
-    assert not paths["linkedin_shortlist"].exists()
+    assert "HH Analyst" not in paths["linkedin_shortlist"].read_text(encoding="utf-8")
 
 
 def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(monkeypatch, tmp_path):
@@ -327,8 +338,9 @@ def test_linkedin_source_shortlist_excludes_records_older_than_window(monkeypatc
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
 
     def fake_rebuild(*args, **kwargs):
-        write_json(paths["combined_json"], [vacancy.model_dump(mode="json") for vacancy in vacancies])
-        return {}
+        from job_assistant.export import export_all
+
+        return export_all([], vacancies, args[0], args[1], [], **kwargs)
 
     monkeypatch.setattr("job_assistant.cli.rebuild_from_authoritative_sources", fake_rebuild)
 
@@ -604,7 +616,7 @@ def test_legacy_authoritative_records_get_source_tags_at_known_boundaries(tmp_pa
     preferences = temp_preferences(tmp_path)
     raw_path = preferences.outputs.output_dir() / preferences.outputs.raw_file
     manual_path = preferences.outputs.output_dir() / preferences.outputs.manual_imports_file
-    write_json(raw_path, [{"query": "legacy", "record": {"id": "legacy-hh"}}])
+    write_json(raw_path, [{"query": "legacy", "record": {"id": "legacy-hh", "name": "Business Analyst"}}])
     write_json(manual_path, [{"query": "legacy", "record": {"page_url": "https://linkedin.test/jobs/1"}}])
 
     assert read_headhunter_raw(preferences)[0]["record"]["__source"] == "headhunter"

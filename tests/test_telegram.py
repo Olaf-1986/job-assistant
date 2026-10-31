@@ -15,6 +15,7 @@ from job_assistant.filters import apply_filters
 from job_assistant.normalize import normalize_records
 from job_assistant.paths import output_paths
 from job_assistant.persistence import rebuild_from_authoritative_sources
+from job_assistant.raw_store import StoreError
 from job_assistant.scoring import score_vacancies
 from job_assistant.telegram_audit import audit_telegram
 from job_assistant.telegram_client import (
@@ -803,7 +804,8 @@ def test_checkpoint_recovery_after_one_source_interruption(tmp_path):
     assert set(checkpoints) == {"analytics_jobs", "jobs_it"}
 
 
-def test_fetch_recovers_from_malformed_legacy_telegram_metadata_without_logging_contents(tmp_path, caplog):
+@pytest.mark.parametrize("invalid_raw", [True, False])
+def test_fetch_strict_raw_validation_is_separate_from_derived_metadata_recovery(tmp_path, caplog, invalid_raw):
     preferences = telegram_preferences(tmp_path)
     paths = output_paths(preferences)
     write_json(
@@ -820,7 +822,9 @@ def test_fetch_recovers_from_malformed_legacy_telegram_metadata_without_logging_
                 },
             },
             {"record": "synthetic-private-content-must-not-be-logged"},
-        ],
+        ]
+        if invalid_raw
+        else [],
     )
     write_json(
         paths["telegram_failures"],
@@ -839,24 +843,30 @@ def test_fetch_recovers_from_malformed_legacy_telegram_metadata_without_logging_
         },
     )
 
-    with caplog.at_level("WARNING", logger="job_assistant.normalize"):
-        asyncio.run(
-            fetch_telegram(
-                preferences,
-                reader=FakeTelegramReader({"analytics_jobs": [ORDINARY_VACANCY]}),
-                now=BASE_TIME + timedelta(days=1),
-                sleep=no_sleep,
+    reader = FakeTelegramReader({"analytics_jobs": [ORDINARY_VACANCY]})
+    before = {
+        paths[key]: paths[key].read_bytes() for key in ("telegram_raw", "telegram_checkpoints", "telegram_failures")
+    }
+    if invalid_raw:
+        with pytest.raises(StoreError, match="Invalid Telegram raw store") as error:
+            asyncio.run(fetch_telegram(preferences, reader=reader, now=BASE_TIME + timedelta(days=1), sleep=no_sleep))
+        assert {path: path.read_bytes() for path in before} == before
+        assert reader.cutoffs == {}
+        assert "synthetic-private-content" not in str(error.value)
+    else:
+        with caplog.at_level("WARNING", logger="job_assistant.normalize"):
+            asyncio.run(
+                fetch_telegram(
+                    preferences,
+                    reader=reader,
+                    now=BASE_TIME + timedelta(days=1),
+                    sleep=no_sleep,
+                )
             )
-        )
-
-    assert any(
-        isinstance(item.get("record"), dict) and item["record"].get("message_id") == 10
-        for item in read_json(paths["telegram_raw"])
-        if isinstance(item, dict)
-    )
-    assert read_json(paths["telegram_checkpoints"])["analytics_jobs"]["last_message_id"] == 10
+        assert any(item["record"].get("message_id") == 10 for item in read_json(paths["telegram_raw"]))
+        assert read_json(paths["telegram_checkpoints"])["analytics_jobs"]["last_message_id"] == 10
     assert "synthetic-private-content" not in caplog.text
-    assert "contents omitted" in caplog.text
+    assert "synthetic-private-failure-content" not in caplog.text
 
 
 def test_audit_reports_pairwise_containment_and_it_job_offers_activity(tmp_path):

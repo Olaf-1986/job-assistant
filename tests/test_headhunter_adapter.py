@@ -6,6 +6,7 @@ import pytest
 from job_assistant.config import load_preferences
 from job_assistant.connectors.headhunter import HeadHunterConnector, _build_headers, _extract_records
 from job_assistant.filters import _active_company_exclusion, apply_filters
+from job_assistant.headhunter_state import RESPONSE_METADATA, successful_observation
 from job_assistant.models import BatchStats
 from job_assistant.normalize import normalize_records
 from job_assistant.scoring import score_vacancies
@@ -292,3 +293,164 @@ def test_russia_only_work_location_blocks_but_russian_citizenship_alone_does_not
     assert filtered[0].blocker is True
     assert "work location restricted to Russia" in filtered[0].blocker_reasons
     assert filtered[1].blocker is False
+
+
+@pytest.fixture
+def paginated_connector(monkeypatch):
+    preferences = load_preferences()
+    preferences.sources.headhunter.samples = preferences.sources.headhunter.samples[:1]
+    preferences.sources.headhunter.search_strings = ["Business Analyst"]
+    preferences.sources.headhunter.per_page = 2
+    preferences.run.pages_per_query = 3
+    preferences.run.request_delay_seconds = 0
+    preferences.run.max_retries = 0
+    original_client = httpx.Client
+    requests = []
+
+    def run(pages, detail_failure=None):
+        def respond(request):
+            requests.append(request)
+            if request.url.path.endswith("/vacancies"):
+                page = int(request.url.params["page"])
+                value = pages[page]
+            else:
+                vacancy_id = request.url.path.rsplit("/", 1)[-1]
+                value = (
+                    detail_failure
+                    if detail_failure is not None
+                    else {"id": vacancy_id, "name": "Business Analyst", "description": "Requirements analysis."}
+                )
+            if isinstance(value, int):
+                return httpx.Response(value, request=request)
+            return httpx.Response(200, json=value, request=request)
+
+        monkeypatch.setattr(
+            "job_assistant.connectors.headhunter.httpx.Client",
+            lambda **kw: original_client(**kw, transport=httpx.MockTransport(respond)),
+        )
+        return HeadHunterConnector(preferences).fetch()
+
+    return preferences, requests, run
+
+
+def search_page(page, found, ids):
+    return {
+        "page": page,
+        "pages": (found + 1) // 2,
+        "found": found,
+        "per_page": 2,
+        "items": [{"id": value, "name": "Business Analyst"} for value in ids],
+    }
+
+
+@pytest.mark.parametrize(
+    "found, pages",
+    [
+        (0, [search_page(0, 0, [])]),
+        (3, [search_page(0, 3, ["1", "2"]), search_page(1, 3, ["3"])]),
+    ],
+)
+def test_complete_hh_pagination_stops_at_last_page(paginated_connector, found, pages):
+    _, requests, run = paginated_connector
+    raw, stats = run(pages)
+    assert stats.complete
+    assert stats.errors == []
+    assert len(raw) == found
+    assert all(successful_observation(item) is not None for item in raw)
+    assert len([request for request in requests if request.url.path.endswith("/vacancies")]) == len(pages)
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        [search_page(0, 3, ["1", "2"]), 503],
+        [search_page(0, 3, ["1", "2"]), search_page(1, 3, [])],
+        [search_page(0, 3, ["1", "2"]), search_page(1, 3, ["1"])],
+        [search_page(0, 3, ["1", "2"]), search_page(0, 3, ["3"])],
+        [search_page(0, 3, ["1", "2"]), search_page(1, 4, ["3", "4"])],
+        [{"items": []}],
+        [{**search_page(0, 0, []), "found": True}],
+        [{**search_page(0, 8, ["1", "2"]), "pages": 1}],
+        [{**search_page(0, 1, ["1"]), "items": [None]}],
+        [{**search_page(0, 1, ["1"]), "items": [{}]}],
+    ],
+)
+def test_partial_or_inconsistent_hh_search_is_never_complete(paginated_connector, pages):
+    _, _, run = paginated_connector
+    _, stats = run(pages)
+    assert not stats.complete
+    assert stats.errors
+
+
+def test_hh_configured_page_cap_is_incomplete(paginated_connector):
+    preferences, requests, run = paginated_connector
+    preferences.run.pages_per_query = 1
+    raw, stats = run([search_page(0, 3, ["1", "2"])])
+    assert len(raw) == 2
+    assert not stats.complete
+    assert any("page limit" in error for error in stats.errors)
+    assert len(requests) == 3  # One page and two details; no implicit expansion of the cap.
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        500,
+        [],
+        {},
+        {"id": "other", "name": "Business Analyst", "description": "text"},
+        {"id": "1", "name": "Business Analyst"},
+    ],
+)
+def test_hh_detail_failure_or_bad_shape_is_incomplete(paginated_connector, detail):
+    _, _, run = paginated_connector
+    raw, stats = run([search_page(0, 1, ["1"])], detail_failure=detail)
+    assert len(raw) == 1
+    assert not stats.complete
+    assert stats.errors
+    assert RESPONSE_METADATA not in raw[0]["record"]
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_hh_detail_by_id_marks_only_successful_complete_observations(paginated_connector, valid):
+    preferences, _, run = paginated_connector
+    run([search_page(0, 1, ["1"])], detail_failure=None if valid else {"id": "1", "name": "Business Analyst"})
+    record, stats = HeadHunterConnector(preferences).fetch_vacancy_by_id("1")
+    assert stats.complete is valid
+    if valid:
+        assert record[RESPONSE_METADATA]["origin"] == "detail"
+        assert successful_observation(record) is not None
+    else:
+        assert record is None
+        assert stats.errors
+
+
+def test_failure_in_one_hh_query_prevents_replacement_of_whole_snapshot(paginated_connector):
+    preferences, _, run = paginated_connector
+    preferences.sources.headhunter.search_strings = ["Business Analyst", "Systems Analyst"]
+
+    # The first query succeeds and the second fails at page zero.
+    class Pages:
+        calls = 0
+
+        def __getitem__(self, index):
+            self.calls += 1
+            return search_page(0, 1, ["1"]) if self.calls == 1 else 503
+
+    raw, stats = run(Pages())
+    assert len(raw) == 1
+    assert not stats.complete
+
+
+def test_hh_without_enabled_samples_is_a_skip(monkeypatch, tmp_path):
+    from job_assistant.cli import _fetch_source
+    from job_assistant.models import FetchOutcome, fetch_outcome
+
+    preferences = load_preferences()
+    preferences.outputs.directory = str(tmp_path)
+    for sample in preferences.sources.headhunter.samples:
+        sample.enabled = False
+    monkeypatch.setattr(HeadHunterConnector, "fetch", lambda self: pytest.fail("Empty configuration must not run"))
+    raw, stats, skipped = _fetch_source(preferences, "headhunter", force=True)
+    assert raw == []
+    assert fetch_outcome(stats, skipped) is FetchOutcome.skipped
