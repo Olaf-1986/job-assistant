@@ -173,7 +173,7 @@ _REQUIRED_LANGUAGE_PREFIXES = (
         r"\bflie(?:ß|ss)end|"
         r"\b(?:must|required\s+to|need\s+to)\s+(?:speak|read|write|know|use|communicate\s+in)|"
         r"\b(?:required|mandatory|essential)\s+(?:command|knowledge|proficiency|fluency)\s+(?:of|in))"
-        r"\s+(?:the\s+)?[^.;:\n]{0,80}$",
+        r"\s+(?:the\s+)?$",
         re.IGNORECASE,
     ),
     re.compile(
