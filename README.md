@@ -108,6 +108,15 @@ of the pipeline. Fetch/import commands by themselves rebuild the combined view; 
 `qf` sets its requested scope. In `all` mode, `WINDOW` bounds collection/rechecking, not the age of the saved
 all-source canonical candidates. Source views apply the supplied publication window; undated records remain eligible.
 
+Shortlist cards combine score, work format, language, salary and publication date on one line, and scoring reasons
+and matched signals on another. Role relevance and employment type remain in the structured exports but are omitted
+from shortlist cards. Location restrictions and Telegram references appear when present. Identical warning sets
+across multiple displayed cards are omitted from Markdown; different warnings stay on their cards. All warnings
+remain in structured exports.
+For rendered Markdown in VS Code, open a shortlist and press `Ctrl+Shift+V`, or `Ctrl+K` then `V` for a side preview
+([VS Code Markdown documentation](https://code.visualstudio.com/docs/languages/markdown)). Plain-text reading in
+Notepad++ also works; vacancy URLs remain visible.
+
 An available source has a valid authoritative store with eligible records, whether saved by this run or an earlier
 one. A failed, disabled or skipped refresh does not exclude its saved records from `all`. Missing stores contribute
 no records; damaged stores stop rebuilding. Reviewed saved RVC records can participate, but `qf` never starts RVC
@@ -147,9 +156,10 @@ Combined outputs under `output/` are derived data. They are rebuilt only from th
 - Reviewed full-description records in `output/rvc_raw.json`; pending RVC cards are excluded.
 
 Shared deduplication uses canonical URLs and source IDs, exact normalized descriptions, and company/title/location
-identity. It also merges different-URL reposts only when normalized company and title are exact and their substantive
-descriptions have at least 98% word-multiset overlap; this catches harmless text reordering while keeping materially
-different openings separate.
+identity. The company/title/location key is sufficient on its own, even when URLs, IDs, or descriptions differ;
+the user accepts this tradeoff for otherwise indistinguishable titles. Text inside parentheses is part of the title.
+Another rule matches different-URL reposts when normalized company and title are exact and substantive descriptions
+have at least 98% word-multiset overlap.
 
 Email ingestion also writes derived `output/email_candidates.json`, `output/linkedin_email_queue.md`, and `output/email_state.json`. These files are derived/local state and are safe to rebuild from the configured mailbox.
 
@@ -440,12 +450,17 @@ The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.
 ## Quality Rules
 
 - Unknown work mode is not treated as remote.
+- Remote roles with unconfirmed eligibility from Georgia remain in the shortlist with a warning. Broad labels such
+  as Europe/EMEA are not proof of a legal restriction; explicit restrictions still block. RVC records still require
+  user review and confirmation of eligibility from Georgia before entering the pipeline.
 - Onsite/hybrid outside Tbilisi is blocked.
 - Explicit Russia-only work-location restrictions are blocked.
 - Russian citizenship by itself is not blocked.
 - Explicit requirements for languages other than Russian, English, or Spanish are blocked.
   This includes fluency requirements such as “Fluent in German, both written and spoken,” even when the
   description itself is English. Requirements in either the full description or its requirements section are checked.
+- Mandatory advanced Spanish (C1/C2, fluent or native) is blocked; optional proficiency and alternatives satisfied
+  by English are not mandatory Spanish requirements. The accepted description languages remain `en`, `ru`, `es`.
 - Vacancy descriptions must be identified as Russian, English, or Spanish (`languages.accepted: [en, ru, es]`).
   This is a hard filter for every source, reapplied after deduplication. Unsupported, empty, or unidentified
   descriptions are excluded; an English title, requirements excerpt, or declared language cannot override the body.
@@ -456,7 +471,25 @@ The IMAP client opens only the configured mailbox in read-only mode, uses `BODY.
 - A known maximum monthly salary of `200,000 RUB` or less is blocked. The comparison uses `1 USD = 87 RUB` and
   `1 GEL (lari) = 33 RUB`; annual amounts are divided by 12. When no maximum is provided, a known minimum below
   `150,000 RUB` monthly equivalent is also blocked. Missing salary bounds and unsupported currencies remain eligible.
+  Thresholds refer to net pay; an unspecified gross/net basis is treated as net. Explicit structured gross markers
+  are retained. The user's screening assumption estimates Russian-market net as `gross / (1 + 13/87)`,
+  equivalently `gross × 87/100`: 100 gross consists of 87 net and 13 tax.
+  other markets use gross as approximate net (the user's stated Georgia 1% is ignored). Explicit `hiring_country`
+  or an explicit hiring statement such as `The employer will hire you in Georgia` takes precedence; otherwise
+  RUB/RUR/₽ means Russia. Recognition is limited to supported country names and unambiguous hiring statements.
+  Source, description language and employer office location do not establish the hiring country. Markdown shows the
+  original gross and estimated net together; the filter uses that estimate without modifying stored gross amounts.
+- For versions sharing a vacancy ID or URL, unequal timezone-aware posting datetimes select the newer complete
+  description and conditions. Receipt, capture and fetch times do not establish posting freshness. Missing/equal dates,
+  partial descriptions or unresolved conflicts retain combined evidence with a warning. Closure/application evidence
+  survives this content selection. This does not change raw-store availability checks or the accepted C15 identity rule.
+  Conflicting salary offers are retained in JSON and the CSV `salary_variants` column, and shown in Markdown with
+  their sources; a salary blocker applies only if every offer
+  can be evaluated and fails the threshold. A passing or unevaluable offer keeps the vacancy available for review.
+- A remote keyword alone is insufficient: negated remote options and remote access/client/system references do not
+  establish remote work. Working hours/timezone preferences impose no additional filter.
 - Role relevance normally requires a target-title match.
 - Description-only relevance requires at least two distinct strong BA/SA, modeling, integration/API, Atlassian administration, SQL/data, or technical documentation signal groups.
 - Token-boundary matching prevents `intern` from matching `internal` and `AI` from matching ordinary words.
-- The requested existing 70% match threshold is not represented in the current model. To avoid changing HH/LinkedIn semantics, Telegram reuses the implemented eligibility and deterministic score/publication-date sorting rules.
+- There is no percentage-match threshold. All sources use shared eligibility rules and deterministic
+  score/publication-date sorting.

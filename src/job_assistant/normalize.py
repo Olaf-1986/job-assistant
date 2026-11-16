@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,12 +11,60 @@ from .config import Preferences
 from .language import detect_language, detect_linkedin_content_language
 from .linkedin_content import _description_from_main_text, linkedin_description_for_language
 from .linkedin_policy import LINKEDIN_CLOSED_BLOCKER_REASON, has_linkedin_no_longer_accepting_marker
-from .location import detect_allowed_city, detect_work_mode
+from .location import classify_remote_eligibility, detect_allowed_city, detect_work_mode
 from .models import NormalizedVacancy, RawRecord
 from .utils import canonical_url, normalize_space, slugify_text, utc_now
 
 LOGGER = logging.getLogger(__name__)
 HEADHUNTER_TAG_FIELDS = ("key_skills", "skills", "professional_roles", "specializations", "tags")
+
+
+# Recognize only country names, not arbitrary locations such as a city or an office.
+_HIRING_COUNTRIES = {
+    "Georgia": r"Georgia|Грузи(?:я|и|ю)",
+    "Russia": r"Russia|Russian\s+Federation|Росси(?:я|и|ю)|Российской\s+Федерации|РФ",
+    "Armenia": r"Armenia|Армени(?:я|и|ю)",
+    "Belarus": r"Belarus|Беларус(?:ь|и)",
+    "Germany": r"Germany|Германи(?:я|и|ю)",
+    "France": r"France|Франци(?:я|и|ю)",
+    "Spain": r"Spain|Испани(?:я|и|ю)",
+    "Italy": r"Italy|Итали(?:я|и|ю)",
+    "Netherlands": r"Netherlands|Нидерланд(?:ы|ах)",
+    "Portugal": r"Portugal|Португали(?:я|и|ю)",
+    "Poland": r"Poland|Польш(?:а|е|у)",
+    "Cyprus": r"Cyprus|Кипр(?:а|е)?",
+    "Serbia": r"Serbia|Серби(?:я|и|ю)",
+    "Turkey": r"Turkey|Türkiye|Турци(?:я|и|ю)",
+    "United Kingdom": r"United\s+Kingdom|UK|Великобритани(?:я|и|ю)",
+    "United States": r"United\s+States|USA|США",
+    "Canada": r"Canada|Канад(?:а|е|у)",
+    "Australia": r"Australia|Австрали(?:я|и|ю)",
+}
+_HIRING_COUNTRY_NAMES = "|".join(f"(?:{names})" for names in _HIRING_COUNTRIES.values())
+_EXPLICIT_HIRING_COUNTRY = re.compile(
+    r"\b(?:"
+    r"(?:we|the\s+employer|the\s+company)\s+(?:will\s+)?(?:hire|employ)\s+you\s+in|"
+    r"(?:you|the\s+successful\s+candidate)\s+(?:will\s+be|are)\s+(?:hired|employed)\s+in|"
+    r"(?:hiring|employment)\s+(?:will\s+be|is)\s+in|"
+    r"(?:оформим|найм[её]м)\s+вас\s+в|вас\s+(?:оформят|наймут)\s+в|"
+    r"вы\s+будете\s+(?:оформлены|трудоустроены)\s+в|"
+    r"(?:оформление|трудоустройство)\s+(?:(?:будет|происходит)\s+)?в"
+    rf")\s+(?:the\s+)?(?P<country>{_HIRING_COUNTRY_NAMES})\b"
+    r"(?!\s+(?:or|and|или|либо|и|state)\b)",
+    re.IGNORECASE,
+)
+
+
+def _explicit_hiring_country(text: str) -> str | None:
+    """Extract only unambiguous, explicitly stated countries of employment."""
+    countries = set()
+    for match in _EXPLICIT_HIRING_COUNTRY.finditer(text):
+        name = match.group("country")
+        for country, pattern in _HIRING_COUNTRIES.items():
+            if re.fullmatch(pattern, name, re.IGNORECASE):
+                countries.add(country)
+                break
+    return next(iter(countries)) if len(countries) == 1 else None
 
 
 def html_to_text(html: str | None) -> str | None:
@@ -99,7 +148,39 @@ def normalize_record(record: RawRecord, query: str, preferences: Preferences) ->
     normalizer = _SOURCE_NORMALIZERS.get(source)
     if normalizer is None:
         raise ValueError(f"Raw record has unknown __source: {source!r}")
-    return normalizer(record, query, preferences)
+    vacancy = normalizer(record, query, preferences)
+    if vacancy is not None:
+        country = record.get("hiring_country")
+        if isinstance(country, str) and country.strip():
+            vacancy.hiring_country = country.strip()
+        else:
+            country_label = re.search(
+                r"(?:hiring country|country of employment|employment country|страна найма|страна оформления)"
+                r"\s*:\s*([^\n,.;]+)",
+                "\n".join([vacancy.description_text or "", vacancy.requirements_text or ""]),
+                re.IGNORECASE,
+            )
+            if country_label:
+                vacancy.hiring_country = country_label[1].strip()
+            else:
+                vacancy.hiring_country = _explicit_hiring_country(
+                    "\n".join([vacancy.description_text or "", vacancy.requirements_text or ""])
+                )
+    if vacancy is not None and source in {"manual", "linkedin", "telegram", "rvc"}:
+        # Structured imports may supply salary data; free-text salary parsing is source-specific.
+        for field in ("salary_min", "salary_max"):
+            if field in record:
+                setattr(vacancy, field, parse_optional_float(record[field], field, vacancy.warnings))
+        for field in ("salary_currency", "salary_period"):
+            if isinstance(record.get(field), str):
+                setattr(vacancy, field, record[field])
+        gross = record.get("salary_gross")
+        basis = record.get("salary_basis")
+        if isinstance(gross, bool):
+            vacancy.salary_gross = gross
+        elif isinstance(basis, str) and basis.casefold() in {"gross", "net"}:
+            vacancy.salary_gross = basis.casefold() == "gross"
+    return vacancy
 
 
 def _base_vacancy(
@@ -180,6 +261,7 @@ def _base_vacancy(
         salary_min=extra.pop("salary_min", None),
         salary_max=extra.pop("salary_max", None),
         salary_currency=extra.pop("salary_currency", None),
+        salary_period=extra.pop("salary_period", None),
         seniority=extra.pop("seniority", None),
         categories=extra.pop("categories", []),
         international_remote_eligibility=extra.pop("international_remote_eligibility", None),
@@ -285,6 +367,7 @@ def _normalize_headhunter_record(record: RawRecord, query: str, preferences: Pre
         salary_max=parse_optional_float(salary.get("to"), "salary.to", warnings),
         salary_currency=salary.get("currency") if isinstance(salary.get("currency"), str) else None,
         salary_period=None,
+        salary_gross=salary.get("gross") if isinstance(salary.get("gross"), bool) else None,
         publication_date=parse_datetime(record.get("published_at")),
         expiry_date=parse_datetime(record.get("archived_at")),
         application_url=application_url,
@@ -434,6 +517,7 @@ def _normalize_manual_record(record: RawRecord, query: str, preferences: Prefere
         preferences,
         imported_manually=True,
         detected_language=record.get("language") if isinstance(record.get("language"), str) else None,
+        publication_date=parse_datetime(record.get("published_at")),
     )
 
 
@@ -498,6 +582,7 @@ def _normalize_linkedin_record(record: RawRecord, query: str, preferences: Prefe
             "captured_at": record.get("captured_at"),
             "document_title": record.get("document_title"),
             "received_at": record.get("received_at"),
+            "publication_date_basis": "posting" if parse_datetime(record.get("published_at")) else "received",
             "linkedin_status": record.get("linkedin_status"),
             "linkedin_status_checked_at": record.get("linkedin_status_checked_at"),
         },
@@ -522,6 +607,13 @@ def _normalize_telegram_record(record: RawRecord, query: str, preferences: Prefe
     location = record.get("location") if isinstance(record.get("location"), str) else None
     message_url = record.get("message_url") if isinstance(record.get("message_url"), str) else None
     apply_url = record.get("apply_url") if isinstance(record.get("apply_url"), str) else None
+    eligibility = record.get("international_remote_eligibility")
+    if eligibility == "explicit_restricted" and raw_text and location:
+        # Older Telegram parsing treated broad regions as definite exclusions.
+        # Re-evaluate that derived label on rebuild without losing explicit restrictions.
+        ambiguous_region = any(term in location.casefold() for term in ("europe", "emea", "cis", "европ", "снг"))
+        if ambiguous_region:
+            eligibility = classify_remote_eligibility(raw_text, record.get("work_mode"), location)
     vacancy = _base_vacancy(
         "telegram",
         source_id,
@@ -541,9 +633,7 @@ def _normalize_telegram_record(record: RawRecord, query: str, preferences: Prefe
         salary_max=parse_optional_float(record.get("salary_max"), "salary_max", warnings),
         salary_currency=record.get("salary_currency") if isinstance(record.get("salary_currency"), str) else None,
         work_mode=record.get("work_mode") if isinstance(record.get("work_mode"), str) else None,
-        international_remote_eligibility=record.get("international_remote_eligibility")
-        if isinstance(record.get("international_remote_eligibility"), str)
-        else None,
+        international_remote_eligibility=eligibility if isinstance(eligibility, str) else None,
         requires_manual_location_review=record.get("requires_manual_location_review") is True,
         warnings=warnings,
         source_metadata={

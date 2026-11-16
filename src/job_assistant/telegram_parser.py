@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from .config import Preferences
+from .location import classify_remote_eligibility
 from .role_relevance import title_prefilter_matches
 from .telegram_client import TelegramMessage
 from .utils import canonical_url, normalize_space
@@ -155,7 +156,7 @@ def _parse_section(
     apply_url = _choose_apply_url(section_text, urls, message.message_url)
     salary_min, salary_max, salary_currency = _extract_salary(section_text)
     work_mode = _extract_work_mode(section_text)
-    remote_eligibility = _remote_eligibility(section_text, work_mode, location)
+    remote_eligibility = classify_remote_eligibility(section_text, work_mode, location)
     role_keywords = [*preferences.role_relevance.relevant_title_keywords, *preferences.queries.low_priority]
     target_match = title_prefilter_matches(title, role_keywords)
     record: dict[str, object] = {
@@ -343,60 +344,6 @@ def _work_mode_from_text(text: str) -> str | None:
         return "onsite"
     if remote:
         return "remote"
-    return None
-
-
-def _remote_eligibility(text: str, work_mode: str | None, location: str | None) -> str | None:
-    if work_mode != "remote":
-        return None
-    location_text = location or ""
-    if re.search(
-        r"\b(?:Tbilisi|Georgia|Тбилиси|Грузи[ия])\b",
-        location_text,
-        re.IGNORECASE,
-    ):
-        return "explicit_allowed_location"
-    if re.search(
-        r"\b(?:EU|EEA|EMEA|Europe|UK|USA?|CIS|Cyprus|Spain|Germany|Serbia|Armenia|Belarus|Russia|"
-        r"Европа|СНГ|Кипр|Испания|Германия|Сербия|Армения|Беларусь|Россия|РФ|РБ)\b",
-        location_text,
-        re.IGNORECASE,
-    ):
-        return "explicit_restricted"
-    if re.search(
-        r"\b(?:only\s+(?:from|in)\s+Georgia|Georgia\s+only|только\s+(?:из|в)\s+Грузи[ия])\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return "explicit_allowed_location"
-    restricted_patterns = (
-        # "only from Germany" / "только из России"
-        r"\b(?:only|только)\s+(?:from|in|for|для|из|в)\s+[A-ZА-ЯЁ][\w .-]{1,40}",
-        # Common compact Telegram wording: "EU only", "Europe only".
-        r"\b(?:EU|EEA|EMEA|Europe|UK|USA?|CIS|Европа|СНГ|РФ|Россия)\s+only\b",
-        r"\b(?:только)\s+(?:EU|EEA|EMEA|Europe|UK|USA?|CIS|Европа|СНГ|РФ|Россия)\b",
-        r"\bremote(?:ly)?\s*(?:[-—,:()]|\s)*(?:within|in|from)\s+(?:the\s+)?"
-        r"(?:EU|EEA|EMEA|Europe|UK|USA?|CIS)\b",
-        r"\bremote(?:ly)?\s*[-—,:()]\s*(?:the\s+)?(?:EU|EEA|EMEA|Europe|UK|USA?|CIS)\b",
-        r"\b(?:EU|EEA|EMEA|Europe|UK|USA?|CIS)\s*[-—,:()]?\s+remote\b",
-        r"\b(?:удал[её]нн(?:о|ый|ая|ое|ые|ую)|удал[её]нка)\s*(?:по|из|в|для)?\s*"
-        r"(?:РФ|РБ|Росси[ия]|Беларус[ьи])\b",
-        r"\b(?:РФ|РБ|Росси[ия]|Беларус[ьи])(?:\s*[-/]\s*(?:РФ|РБ|Росси[ия]|Беларус[ьи]))?"
-        r"\s*\(?\s*(?:удал[её]нн(?:о|ый|ая|ое|ые|ую)|удал[её]нка)\b",
-        # Residency/location requirements without the word "only".
-        r"\b(?:must|required\s+to|should)\s+be\s+(?:based|located|resident)\s+in\s+[A-Z][\w .-]{1,40}",
-        r"\b(?:нужно|необходимо|долж(?:ен|на|ны))\s+(?:находиться|проживать|быть)\s+в\s+[А-ЯЁ][\w .-]{1,40}",
-    )
-    is_restricted = any(re.search(pattern, text, re.IGNORECASE) for pattern in restricted_patterns)
-    if is_restricted:
-        return "explicit_restricted"
-    if re.search(
-        r"\b(?:worldwide|anywhere|any country|all countries|по всему миру|из любой страны)\b|"
-        r"\b(?:remote(?:ly)?|work|hire|hiring)\s+globally\b|\bglobal\s+remote\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return "explicit_global"
     return None
 
 

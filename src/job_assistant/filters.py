@@ -4,9 +4,11 @@ import re
 from datetime import date
 
 from .config import Preferences
-from .language import detect_language, explicit_unsupported_language_requirements
+from .language import detect_language, explicit_unsupported_language_requirements, has_advanced_spanish_requirement
 from .linkedin_content import linkedin_description_for_language
+from .location import classify_remote_eligibility
 from .models import NormalizedVacancy
+from .salary import net_amount
 from .utils import lower_text, slugify_text
 
 COUNTRY_RE = re.compile(
@@ -28,6 +30,19 @@ RUB_PER_CURRENCY_UNIT = {
     "LARI": 33,
     "₾": 33,
 }
+REMOTE_LOCATION_WARNING = "remote eligibility from Georgia is unverified; confirm location restrictions"
+GROSS_SALARY_WARNING = "salary is gross; net amount needs verification against salary thresholds"
+LOW_MAX_SALARY_REASON = f"maximum monthly salary is at or below {MAX_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
+LOW_MIN_SALARY_REASON = (
+    f"minimum monthly salary without upper bound is below {MIN_OPEN_ENDED_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
+)
+
+
+def manual_location_blocks_shortlist(vacancy: NormalizedVacancy) -> bool:
+    """Remote geography uncertainty is reviewable; RVC still requires explicit review."""
+    return vacancy.requires_manual_location_review and (
+        vacancy.work_mode != "remote" or "rvc" in {vacancy.source, *vacancy.sources}
+    )
 
 
 def apply_role_relevance(vacancy: NormalizedVacancy, preferences: Preferences) -> NormalizedVacancy:
@@ -137,7 +152,11 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
         " ".join(vacancy.location_restrictions),
     )
     title = (vacancy.title or "").lower()
-    reasons: list[str] = [*vacancy.blocker_reasons]
+    # Salary conditions may have changed after an earlier filtering pass or a
+    # duplicate merge. Recompute only our own derived salary reasons.
+    reasons: list[str] = [
+        reason for reason in vacancy.blocker_reasons if reason not in {LOW_MAX_SALARY_REASON, LOW_MIN_SALARY_REASON}
+    ]
     if vacancy.detected_language not in preferences.languages.accepted:
         reasons.append(f"unsupported description language: {vacancy.detected_language}")
     company_exclusion = _active_company_exclusion(vacancy.company, preferences)
@@ -146,6 +165,7 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
     low_salary = _low_salary_reason(vacancy)
     if low_salary:
         reasons.append(low_salary)
+    vacancy.warnings = [warning for warning in vacancy.warnings if warning != GROSS_SALARY_WARNING]
     developer_title = any(contains_phrase(title, term) for term in preferences.blockers.developer_titles)
     developer_title_allowed = any(
         contains_phrase(title, term)
@@ -160,14 +180,35 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
         reasons.append("pure customer-support role")
     if vacancy.work_mode in {"onsite", "hybrid"} and not vacancy.detected_city:
         reasons.append("onsite or hybrid outside Tbilisi")
+    if vacancy.work_mode == "remote":
+        # HH's area commonly identifies the employer, not the allowed remote residence.
+        remote_text = "\n".join([vacancy.description_text or "", vacancy.requirements_text or ""])
+        remote_location = None if vacancy.source == "headhunter" else ", ".join(vacancy.location_restrictions)
+        detected_eligibility = classify_remote_eligibility(remote_text, "remote", remote_location)
+        if detected_eligibility == "explicit_restricted" or vacancy.international_remote_eligibility in {
+            None,
+            "unknown",
+        }:
+            vacancy.international_remote_eligibility = detected_eligibility
     if vacancy.international_remote_eligibility == "explicit_restricted":
         reasons.append("international remote eligibility restricted")
     if _russia_only_work_location(text):
         reasons.append("work location restricted to Russia")
-    if vacancy.requires_manual_location_review:
+    if (
+        vacancy.work_mode == "remote"
+        and vacancy.international_remote_eligibility in {None, "unknown"}
+        and "rvc" not in {vacancy.source, *vacancy.sources}
+    ):
+        vacancy.requires_manual_location_review = True
+    if manual_location_blocks_shortlist(vacancy):
         reasons.append("manual location review required")
+    elif vacancy.requires_manual_location_review and vacancy.international_remote_eligibility != "explicit_restricted":
+        reasons = [reason for reason in reasons if reason != "manual location review required"]
+        vacancy.warnings.append(REMOTE_LOCATION_WARNING)
     for language in explicit_unsupported_language_requirements(text):
         reasons.append(f"explicit {language} language requirement")
+    if has_advanced_spanish_requirement(text):
+        reasons.append("advanced Spanish requirement exceeds supported proficiency")
     country = _foreign_requirement_country(text, preferences)
     if country:
         reasons.append(f"foreign citizenship/work authorization requirement: {country}")
@@ -176,6 +217,7 @@ def apply_hard_blockers(vacancy: NormalizedVacancy, preferences: Preferences) ->
             vacancy.warnings.append(f"work authorization mentioned for {allowed}")
     vacancy.blocker_reasons = sorted(set(reasons))
     vacancy.blocker = bool(vacancy.blocker_reasons)
+    vacancy.warnings = list(dict.fromkeys(vacancy.warnings))
     return vacancy
 
 
@@ -201,6 +243,18 @@ def _company_matches(company: str, excluded_company: str) -> bool:
 
 
 def _low_salary_reason(vacancy: NormalizedVacancy) -> str | None:
+    if vacancy.salary_variants:
+        reasons = [
+            _low_salary_reason_single(vacancy.model_copy(update=variant.model_dump()))
+            for variant in vacancy.salary_variants
+        ]
+        # A conflicting offer that passes, or cannot be evaluated, requires
+        # review instead of excluding the whole vacancy as underpaid.
+        return sorted(set(reasons))[0] if all(reason is not None for reason in reasons) else None
+    return _low_salary_reason_single(vacancy)
+
+
+def _low_salary_reason_single(vacancy: NormalizedVacancy) -> str | None:
     if not vacancy.salary_currency:
         return None
     currency = vacancy.salary_currency.strip().upper()
@@ -213,17 +267,17 @@ def _low_salary_reason(vacancy: NormalizedVacancy) -> str | None:
         return None
 
     if vacancy.salary_max is not None:
-        monthly_max_rub = vacancy.salary_max / divisor * rub_rate
+        monthly_max_rub = float(net_amount(vacancy, vacancy.salary_max)) / divisor * rub_rate
         if monthly_max_rub <= MAX_MONTHLY_SALARY_RUB:
-            return f"maximum monthly salary is at or below {MAX_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
+            return LOW_MAX_SALARY_REASON
         return None
 
     if vacancy.salary_min is None:
         return None
-    monthly_min_rub = vacancy.salary_min / divisor * rub_rate
+    monthly_min_rub = float(net_amount(vacancy, vacancy.salary_min)) / divisor * rub_rate
     if monthly_min_rub >= MIN_OPEN_ENDED_MONTHLY_SALARY_RUB:
         return None
-    return f"minimum monthly salary without upper bound is below {MIN_OPEN_ENDED_MONTHLY_SALARY_RUB:.0f} RUB equivalent"
+    return LOW_MIN_SALARY_REASON
 
 
 def _foreign_requirement_country(text: str, preferences: Preferences) -> str | None:

@@ -265,6 +265,14 @@ def test_other_explicit_language_requirements_are_detected(text, language):
         "Proficient in German, both written and spoken",
         "Native German speaker",
         "Fluent in English and German, both written and spoken",
+        "Proficient in English, Russian and German",
+        "Fluent in English, Russian, and German",
+        "Fluent in written and spoken German",
+        "Fluent in business German",
+        "Proficient in conversational German",
+        "Professional fluency in both English and German",
+        "Fluent in English and in German",
+        "Proficient in English (C1) and German",
         "Fluent in\nGerman, both written and spoken",
         "Fluent\tin\tGerman, both written and spoken",
         "Fließend Deutsch in Wort und Schrift",
@@ -287,6 +295,25 @@ def test_language_mentions_without_a_demand_do_not_block():
     )
 
     assert explicit_unsupported_language_requirements(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Develop native iOS integrations for German customers",
+        "Proficient in Python while working with German clients",
+    ],
+)
+def test_skill_qualification_does_not_turn_customer_language_into_requirement(text):
+    assert explicit_unsupported_language_requirements(text) == []
+    vacancy = normalize_record(
+        {**BUSINESS_ANALYST, "jobDescription": f"<p>Requirements analysis. {text}.</p>"},
+        "Business Analyst",
+        load_preferences(),
+    )
+    assert vacancy is not None
+    filtered = apply_hard_blockers(vacancy, load_preferences())
+    assert "explicit German language requirement" not in filtered.blocker_reasons
 
 
 def test_bare_atlassian_engineering_title_stays_blocked():

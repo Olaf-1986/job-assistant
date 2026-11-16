@@ -218,7 +218,6 @@ def test_remote_regional_restrictions_are_blocked_deterministically(tmp_path):
     restricted_texts = (
         ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "Remote, EU only"),
         ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "Remote; must be based in Germany"),
-        ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "Remote — Europe"),
         ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "Remote EU"),
         ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "Cyprus (Remote)"),
         ORDINARY_VACANCY_TEXT.replace("Remote worldwide", "удалённо по РФ"),

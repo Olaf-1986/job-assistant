@@ -59,6 +59,8 @@ class RvcReview(BaseModel):
     salary_max: float | None = Field(default=None, ge=0)
     salary_currency: str | None = None
     salary_period: Literal["hour", "month", "year"] | None = None
+    salary_gross: bool | None = None
+    hiring_country: str | None = None
 
 
 class RvcEntry(BaseModel):

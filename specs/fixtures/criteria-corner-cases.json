@@ -1,0 +1,793 @@
+{
+  "schema_version": 1,
+  "kind": "synthetic_acceptance_examples",
+  "reference_date": "2026-11-07",
+  "timezone": "Asia/Tbilisi",
+  "status": "specification_not_executed_tests",
+  "notes": [
+    "Все компании, идентификаторы, тексты и URL вымышлены. Внешние запросы запрещены.",
+    "Схема описательная: это не готовые NormalizedVacancy и не payload адаптера.",
+    "Каждый case выполняется независимо, с пустой историей показов и откликов; другие критерии выполнены.",
+    "shortlist означает eligible до сортировки и ограничения количества.",
+    "Каждый variant заменяет указанные поля у указанной vacancy и выполняется вместо базового случая.",
+    "variants[].expected полностью задаёт ожидаемый итог варианта; отсутствующее expected наследуется от case.",
+    "Новые ожидаемые правила не означают, что текущая реализация уже проходит эти кейсы."
+  ],
+  "default_vacancy": {
+    "title": "Business Analyst",
+    "description": "We are looking for a business analyst with experience in requirements analysis, stakeholder management and process documentation. You will work with our team on user stories and acceptance criteria.",
+    "work_mode": "remote",
+    "location_text": "Remote worldwide, including Georgia",
+    "salary": {
+      "min": 210000,
+      "max": 260000,
+      "currency": "RUB",
+      "period": "month",
+      "basis": "net"
+    },
+    "published_at": "2026-11-06T09:00:00Z",
+    "fetched_at": "2026-11-07T08:00:00Z"
+  },
+  "cases": [
+    {
+      "id": "C01",
+      "name": "Английское описание, обязательный немецкий",
+      "vacancies": [
+        {
+          "id": "c01-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c01",
+          "company": "Synthetic Language One",
+          "requirements": "English B2 and fluent German are required."
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "German обязателен и находится вне ru/en/es."
+      }
+    },
+    {
+      "id": "C02",
+      "name": "Необязательный язык и рынок клиентов",
+      "vacancies": [
+        {
+          "id": "c02-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c02",
+          "company": "Synthetic Language Two",
+          "requirements": "English is required. German is a nice-to-have, not required. You will work with German clients in English."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Упоминание немецких клиентов и optional German не создают обязательного языка."
+      }
+    },
+    {
+      "id": "C03",
+      "name": "Обязательный высокий испанский",
+      "vacancies": [
+        {
+          "id": "c03-a",
+          "source": "telegram",
+          "source_id": "synthetic-c03:1:0",
+          "company": "Synthetic Language Three",
+          "requirements": "Spanish C1 is mandatory for daily customer workshops."
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "Обязательный Spanish C1/C2/fluent/native выше подтверждённого уровня пользователя."
+      },
+      "variants": [
+        {
+          "id": "c03-c2",
+          "vacancy_id": "c03-a",
+          "replace": {
+            "requirements": "Required: Spanish C2."
+          }
+        },
+        {
+          "id": "c03-fluent",
+          "vacancy_id": "c03-a",
+          "replace": {
+            "requirements": "Fluent in Spanish, both written and spoken, is required."
+          }
+        },
+        {
+          "id": "c03-native",
+          "vacancy_id": "c03-a",
+          "replace": {
+            "requirements": "Native Spanish speaker required."
+          }
+        },
+        {
+          "id": "c03-ru",
+          "vacancy_id": "c03-a",
+          "replace": {
+            "requirements": "Обязателен испанский язык на уровне C1; свободное владение для интервью."
+          }
+        },
+        {
+          "id": "c03-es",
+          "vacancy_id": "c03-a",
+          "replace": {
+            "requirements": "Se requiere español C1 para las reuniones con clientes."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "name": "Желательный высокий испанский",
+      "vacancies": [
+        {
+          "id": "c04-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c04",
+          "company": "Synthetic Language Four",
+          "requirements": "English C1 is required. Spanish C1 is preferred but not required. Fluent Spanish would be a bonus."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Высокий испанский явно optional; обязательный английский доступен."
+      }
+    },
+    {
+      "id": "C05",
+      "name": "Достаточно английского ИЛИ испанского",
+      "vacancies": [
+        {
+          "id": "c05-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c05",
+          "company": "Synthetic Language Five",
+          "requirements": "English C1 OR Spanish C1 is required; either language alone is sufficient."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Испанский C1 не обязателен при доступной английской альтернативе."
+      }
+    },
+    {
+      "id": "C06",
+      "name": "Нужны английский И испанский",
+      "vacancies": [
+        {
+          "id": "c06-a",
+          "source": "telegram",
+          "source_id": "synthetic-c06:1:0",
+          "company": "Synthetic Language Six",
+          "requirements": "English C1 AND Spanish C1 are required; both languages are used daily."
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "Доступный английский не отменяет обязательного испанского C1."
+      }
+    },
+    {
+      "id": "C07",
+      "name": "Испанский intermediate",
+      "vacancies": [
+        {
+          "id": "c07-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c07",
+          "company": "Synthetic Language Seven",
+          "description": "Buscamos experiencia en análisis de requisitos y documentación de procesos de negocio. El trabajo consiste en colaborar con el equipo y preparar historias de usuario.",
+          "requirements": "Se requiere español B1. English is available for technical documentation."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Описание es разрешено; B1 не относится к подтверждённым блокерам C1/C2/fluent/native."
+      }
+    },
+    {
+      "id": "C08",
+      "name": "Язык заголовка не заменяет язык описания",
+      "vacancies": [
+        {
+          "id": "c08-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c08",
+          "company": "Synthetic Language Eight",
+          "declared_language": "en",
+          "description": "Business Analyst. Poszukujemy analityka do zespołu. Zakres obowiązków obejmuje współpracę z klientami oraz analizę wymagań. Oferujemy pracę zdalną. Wymagamy znajomości systemów i tworzenia dokumentacji."
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "Польское описание не разрешено, даже если заголовок и метаданные английские."
+      },
+      "variants": [
+        {
+          "id": "c08-unknown",
+          "vacancy_id": "c08-a",
+          "replace": {
+            "description": "SQL BPMN REST qwerty zxcvb"
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "Язык полного описания нельзя установить по нескольким техническим словам."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C09",
+      "name": "Неоднозначное Remote Europe",
+      "vacancies": [
+        {
+          "id": "c09-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c09",
+          "company": "Synthetic Remote Nine",
+          "location_text": "Remote, Europe",
+          "requirements": "Work remotely with our European team. Hiring countries are not specified."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist_with_warning",
+        "eligible_count": 1,
+        "warnings": [
+          "Работа из Грузии не подтверждена: указано Remote Europe без списка стран."
+        ],
+        "reason": "Неясная география remote больше не самостоятельный блокер."
+      }
+    },
+    {
+      "id": "C10",
+      "name": "Часовой пояс вместо юридического ограничения",
+      "vacancies": [
+        {
+          "id": "c10-a",
+          "source": "telegram",
+          "source_id": "synthetic-c10:1:0",
+          "company": "Synthetic Remote Ten",
+          "location_text": "Remote worldwide, including Georgia. Four hours of overlap with UTC+2 to UTC+4 are required.",
+          "requirements": "English is required. Applicants may work from any country."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Грузия явно разрешена; диапазон часов не является ограничением резидентства ЕС."
+      }
+    },
+    {
+      "id": "C11",
+      "name": "Явное ограничение удалёнки",
+      "vacancies": [
+        {
+          "id": "c11-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c11",
+          "company": "Synthetic Remote Eleven",
+          "location_text": "Remote within the EU only",
+          "requirements": "Applicants must reside in an EU member state and have the right to work there. Georgia is not supported."
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "Есть явное географическое ограничение, несовместимое с работой из Грузии."
+      },
+      "variants": [
+        {
+          "id": "c11-russia",
+          "vacancy_id": "c11-a",
+          "replace": {
+            "location_text": "Удалённо только из РФ",
+            "requirements": "Работа возможна только с территории России, из других стран работать нельзя."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C12",
+      "name": "Гибрид и реальное место офиса",
+      "vacancies": [
+        {
+          "id": "c12-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c12",
+          "company": "Synthetic Office Twelve",
+          "work_mode": "hybrid",
+          "location_text": "Tbilisi, Georgia",
+          "requirements": "Two days a week in our Tbilisi office. English is required."
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "reason": "Обязательный офис в разрешённом городе Тбилиси."
+      },
+      "variants": [
+        {
+          "id": "c12-batumi",
+          "vacancy_id": "c12-a",
+          "replace": {
+            "location_text": "Batumi, Georgia",
+            "requirements": "Three days a week in our Batumi office. The headquarters is in Tbilisi."
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "Рабочий офис в Батуми; упоминание штаб-квартиры в Тбилиси не разрешает гибрид."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C13",
+      "name": "Дубликат из HH и Telegram с tracking-параметрами",
+      "vacancies": [
+        {
+          "id": "c13-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c13-hh",
+          "company": "Synthetic Duplicate Thirteen",
+          "source_url": "https://hh.example.invalid/vacancy/c13",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C13?utm_source=hh"
+        },
+        {
+          "id": "c13-b",
+          "source": "telegram",
+          "source_id": "synthetic-c13:22:0",
+          "company": "Synthetic Duplicate Thirteen",
+          "source_url": "https://telegram.example.invalid/c13/22",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C13?utm_source=telegram&utm_campaign=jobs"
+        }
+      ],
+      "expected": {
+        "decision": "merged_shortlist",
+        "eligible_count": 1,
+        "merged_count": 1,
+        "preserve": [
+          "оба source ID",
+          "оба source URL",
+          "канонический application URL",
+          "атрибуция HH и Telegram"
+        ],
+        "reason": "Application URL обозначает один requisition; tracking не создаёт новый найм."
+      }
+    },
+    {
+      "id": "C14",
+      "name": "Дубликат не должен скрывать обязательное ограничение",
+      "vacancies": [
+        {
+          "id": "c14-a",
+          "source": "linkedin",
+          "source_id": "synthetic-c14-li",
+          "company": "Synthetic Conflict Fourteen",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C14",
+          "requirements": "English C1 is required."
+        },
+        {
+          "id": "c14-b",
+          "source": "telegram",
+          "source_id": "synthetic-c14:23:0",
+          "company": "Synthetic Conflict Fourteen",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C14",
+          "requirements": "English C1 and Spanish C1 are both mandatory for this opening."
+        }
+      ],
+      "expected": {
+        "decision": "merged_blocked",
+        "eligible_count": 0,
+        "merged_count": 1,
+        "order_invariant": true,
+        "reason": "Требование Spanish C1 сохраняется после объединения при любом порядке. Подтверждения отмены условия нет."
+      },
+      "variants": [
+        {
+          "id": "c14-geography",
+          "vacancy_id": "c14-b",
+          "replace": {
+            "location_text": "Remote for EU residents only",
+            "requirements": "English C1 is required. Applicants must reside in an EU member state. Work from Georgia is not permitted."
+          },
+          "expected": {
+            "decision": "merged_blocked",
+            "eligible_count": 0,
+            "merged_count": 1,
+            "order_invariant": true,
+            "reason": "Явное EU-only из второго источника нельзя потерять за исходным remote worldwide."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C15",
+      "name": "Два найма с одинаковыми компанией, ролью и городом",
+      "vacancies": [
+        {
+          "id": "c15-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c15-payments",
+          "company": "Synthetic Separate Fifteen",
+          "work_mode": "hybrid",
+          "location_text": "Tbilisi",
+          "requisition_id": "REQ-PAYMENTS-01",
+          "application_url": "https://careers.example.invalid/jobs/REQ-PAYMENTS-01",
+          "description": "Business Analyst for our payments team. Analyze card processing requirements and document transaction reconciliation rules. Work with banking stakeholders on settlement acceptance criteria. This is opening REQ-PAYMENTS-01."
+        },
+        {
+          "id": "c15-b",
+          "source": "headhunter",
+          "source_id": "synthetic-c15-warehouse",
+          "company": "Synthetic Separate Fifteen",
+          "work_mode": "hybrid",
+          "location_text": "Tbilisi",
+          "requisition_id": "REQ-WAREHOUSE-02",
+          "application_url": "https://careers.example.invalid/jobs/REQ-WAREHOUSE-02",
+          "description": "Business Analyst for our warehouse team. Gather inventory requirements and model stock movement processes. Prepare picking workflows with logistics stakeholders and define shipment specifications. This is separate opening REQ-WAREHOUSE-02."
+        }
+      ],
+      "expected": {
+        "decision": "merged_shortlist",
+        "eligible_count": 1,
+        "merged_count": 1,
+        "preserve": [
+          "оба source ID",
+          "оба application URL"
+        ],
+        "reason": "Одинаковые компания, заголовок и город объединяют карточки даже при разных ID и описаниях; пользователь принял это поведение."
+      },
+      "variants": [
+        {
+          "id": "c15-different-title",
+          "vacancy_id": "c15-a",
+          "replace": {
+            "title": "Business Analyst (Payments)"
+          },
+          "expected": {
+            "decision": "separate_shortlist",
+            "eligible_count": 2,
+            "merged_count": 0,
+            "reason": "Уточнение в скобках входит в название; совпадений других ключей нет."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C16",
+      "name": "Неуказанная налоговая база означает net",
+      "vacancies": [
+        {
+          "id": "c16-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c16",
+          "company": "Synthetic Salary Sixteen",
+          "salary": {
+            "min": 210000,
+            "max": 250000,
+            "currency": "RUB",
+            "period": "month",
+            "basis": null
+          }
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "effective_salary_basis": "assumed_net",
+        "reason": "Пользователь явно указал считать неуточнённую сумму net; максимум выше 200000."
+      }
+    },
+    {
+      "id": "C17",
+      "name": "Границы зарплатных порогов net",
+      "vacancies": [
+        {
+          "id": "c17-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c17",
+          "company": "Synthetic Salary Seventeen",
+          "salary": {
+            "min": 170000,
+            "max": 200000,
+            "currency": "RUB",
+            "period": "month",
+            "basis": "net"
+          }
+        }
+      ],
+      "expected": {
+        "decision": "blocked",
+        "eligible_count": 0,
+        "reason": "Максимум ровно 200000 net включён в блокирующую границу."
+      },
+      "variants": [
+        {
+          "id": "c17-max-above",
+          "vacancy_id": "c17-a",
+          "replace": {
+            "salary": {
+              "min": 170000,
+              "max": 200001,
+              "currency": "RUB",
+              "period": "month",
+              "basis": "net"
+            }
+          },
+          "expected": {
+            "decision": "shortlist",
+            "eligible_count": 1,
+            "reason": "Максимум строго выше 200000."
+          }
+        },
+        {
+          "id": "c17-open-low",
+          "vacancy_id": "c17-a",
+          "replace": {
+            "salary": {
+              "min": 149999,
+              "max": null,
+              "currency": "RUB",
+              "period": "month",
+              "basis": "net"
+            }
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "Минимум без максимума ниже 150000."
+          }
+        },
+        {
+          "id": "c17-open-boundary",
+          "vacancy_id": "c17-a",
+          "replace": {
+            "salary": {
+              "min": 150000,
+              "max": null,
+              "currency": "RUB",
+              "period": "month",
+              "basis": "net"
+            }
+          },
+          "expected": {
+            "decision": "shortlist",
+            "eligible_count": 1,
+            "reason": "Минимум без максимума ровно 150000 разрешён."
+          }
+        },
+        {
+          "id": "c17-annual",
+          "vacancy_id": "c17-a",
+          "replace": {
+            "salary": {
+              "min": 2040000,
+              "max": 2400000,
+              "currency": "RUB",
+              "period": "year",
+              "basis": "net"
+            }
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "2400000 в год равно 200000 в месяц."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C18",
+      "name": "Gross: пользовательская оценка net",
+      "decision_basis": "user_confirmed_2026-11-16",
+      "vacancies": [
+        {
+          "id": "c18-a",
+          "source": "headhunter",
+          "source_id": "synthetic-c18",
+          "company": "Synthetic Salary Eighteen",
+          "salary": {
+            "min": 300000,
+            "max": 400000,
+            "currency": "RUB",
+            "period": "month",
+            "basis": "gross",
+            "source_gross_flag": true
+          }
+        }
+      ],
+      "expected": {
+        "decision": "shortlist",
+        "eligible_count": 1,
+        "estimated_net": {
+          "min": 261000,
+          "max": 348000
+        },
+        "reason": "RUB без явной страны найма означает российский рынок: gross / (1 + 13/87) = gross × 87/100. Исходная сумма и допущение видны в карточке."
+      },
+      "variants": [
+        {
+          "id": "c18-ru-below",
+          "vacancy_id": "c18-a",
+          "replace": {
+            "salary": {
+              "min": null,
+              "max": 220000,
+              "currency": "RUB",
+              "period": "month",
+              "basis": "gross"
+            }
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "220000 / (1 + 13/87) = 191400 net, ниже порога."
+          }
+        },
+        {
+          "id": "c18-ru-above",
+          "vacancy_id": "c18-a",
+          "replace": {
+            "salary": {
+              "min": null,
+              "max": 230000,
+              "currency": "RUR",
+              "period": "month",
+              "basis": "gross"
+            }
+          },
+          "expected": {
+            "decision": "shortlist",
+            "eligible_count": 1,
+            "reason": "230000 / (1 + 13/87) = 200100 net, выше порога."
+          }
+        },
+        {
+          "id": "c18-explicit-ge",
+          "vacancy_id": "c18-a",
+          "replace": {
+            "hiring_country": "Georgia",
+            "salary": {
+              "min": null,
+              "max": 220000,
+              "currency": "RUB",
+              "period": "month",
+              "basis": "gross"
+            }
+          },
+          "expected": {
+            "decision": "shortlist",
+            "eligible_count": 1,
+            "reason": "Явная страна найма важнее RUB: для Грузии пользователь разрешил пренебречь 1%."
+          }
+        },
+        {
+          "id": "c18-explicit-ru-usd",
+          "vacancy_id": "c18-a",
+          "replace": {
+            "hiring_country": "Russia",
+            "salary": {
+              "min": null,
+              "max": 2500,
+              "currency": "USD",
+              "period": "month",
+              "basis": "gross"
+            }
+          },
+          "expected": {
+            "decision": "blocked",
+            "eligible_count": 0,
+            "reason": "Явная Россия важнее USD: 2500 / (1 + 13/87) × 87 = 189225 RUB net."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C19",
+      "name": "Свежесть условий по datetime публикации, а не длине текста",
+      "vacancies": [
+        {
+          "id": "c19-old",
+          "source": "headhunter",
+          "source_id": "synthetic-c19",
+          "company": "Synthetic Versions Nineteen",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C19",
+          "published_at": "2026-11-06T09:00:00Z",
+          "requirements": "English and Spanish C1 are mandatory.",
+          "description": "We are hiring a business analyst to document requirements and acceptance criteria. Work on process models with stakeholders and support integration specifications. Our projects involve customer workshops and detailed process documentation.",
+          "description_completeness": "complete"
+        },
+        {
+          "id": "c19-new",
+          "source": "linkedin",
+          "source_id": "synthetic-c19-li",
+          "company": "Synthetic Versions Nineteen",
+          "application_url": "https://careers.example.invalid/jobs/REQ-C19",
+          "published_at": "2026-11-06T13:01:00+04:00",
+          "requirements": "English B2 is required.",
+          "description": "We need a business analyst to analyze requirements, document processes and prepare acceptance criteria with stakeholders.",
+          "description_completeness": "complete"
+        }
+      ],
+      "expected": {
+        "decision": "merged_shortlist",
+        "eligible_count": 1,
+        "merged_count": 1,
+        "order_invariant": true,
+        "reason": "Новая полная версия опубликована на минуту позднее. Старое Spanish C1 не добавляется в текущие условия. Идентификаторы обоих источников сохраняются."
+      },
+      "variants": [
+        {
+          "id": "c19-equal",
+          "vacancy_id": "c19-new",
+          "replace": {
+            "published_at": "2026-11-06T13:00:00+04:00"
+          },
+          "expected": {
+            "decision": "merged_blocked",
+            "eligible_count": 0,
+            "reason": "Одинаковое время: конфликт не разрешён; сохраняется Spanish C1 и warning."
+          }
+        },
+        {
+          "id": "c19-no-date",
+          "vacancy_id": "c19-new",
+          "replace": {
+            "published_at": null,
+            "received_at": "2026-11-09T09:00:00Z"
+          },
+          "expected": {
+            "decision": "merged_blocked",
+            "eligible_count": 0,
+            "reason": "Время получения письма не заменяет публикацию; сохраняется ограничение и warning."
+          }
+        },
+        {
+          "id": "c19-partial",
+          "vacancy_id": "c19-new",
+          "replace": {
+            "description_completeness": "incomplete"
+          },
+          "expected": {
+            "decision": "merged_blocked",
+            "eligible_count": 0,
+            "reason": "Неполная карточка не доказывает отмену старого условия."
+          }
+        }
+      ]
+    },
+    {
+      "id": "C20",
+      "name": "Remote в техническом контексте или с отрицанием",
+      "vacancies": [
+        {
+          "id": "c20-a",
+          "source": "manual",
+          "source_id": "synthetic-c20",
+          "company": "Synthetic Context Twenty",
+          "work_mode": "unknown",
+          "location_text": null,
+          "requirements": "Experience with remote access and distributed systems. This role is not remote.",
+          "requires_manual_location_review": true
+        }
+      ],
+      "expected": {
+        "decision": "manual_review",
+        "eligible_count": 0,
+        "reason": "Remote access и отрицание не доказывают удалённый формат. Географический warning не разрешает неизвестный формат с ручной проверкой."
+      }
+    }
+  ],
+  "updated_at": "2026-11-16"
+}

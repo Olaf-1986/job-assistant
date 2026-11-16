@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import json
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -13,11 +14,13 @@ from urllib.parse import urlsplit
 from .config import Preferences
 from .deduplicate import vacancies_match
 from .errors import sanitize_error
+from .filters import REMOTE_LOCATION_WARNING, manual_location_blocks_shortlist
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
 from .publication import PublicationError, json_bytes, publish_files, recover_publication
 from .raw_store import read_raw_store, validate_raw_records
 from .rvc_store import load_rvc_store
+from .salary import gross_tax_ratio, net_amount
 from .utils import ensure_directory, write_bytes
 
 
@@ -27,7 +30,7 @@ def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[Norm
         for vacancy in vacancies
         if not vacancy.blocker
         and not vacancy.previously_exported
-        and not vacancy.requires_manual_location_review
+        and not manual_location_blocks_shortlist(vacancy)
         and not vacancy.requires_manual_role_review
     ]
     return sorted(
@@ -209,7 +212,7 @@ def export_all(
     eligible_count = sum(
         not v.blocker
         and not v.previously_exported
-        and not v.requires_manual_location_review
+        and not manual_location_blocks_shortlist(v)
         and not v.requires_manual_role_review
         for v in vacancies
     )
@@ -287,6 +290,8 @@ def _csv_bytes(vacancies: list[NormalizedVacancy]) -> bytes:
         "salary_min",
         "salary_max",
         "salary_currency",
+        "salary_gross",
+        "salary_variants",
         "publication_date",
         "description_completeness",
         "requirements_text",
@@ -304,6 +309,7 @@ def _csv_bytes(vacancies: list[NormalizedVacancy]) -> bytes:
         writer.writeheader()
         for vacancy in vacancies:
             row = vacancy.model_dump(mode="json")
+            row["salary_variants"] = json.dumps(row["salary_variants"], ensure_ascii=False)
             writer.writerow({field: _csv_value(row.get(field)) for field in fields})
         return handle.getvalue().encode("utf-8")
 
@@ -316,32 +322,42 @@ def _csv_value(value: Any) -> str:
     return "'" + value if value.startswith(("=", "+", "-", "@", "\t", "\r")) else value
 
 
-def _shortlist_markdown(vacancies: list[NormalizedVacancy]) -> str:
+def _shortlist_markdown(vacancies: list[NormalizedVacancy], *, notes: list[str] | None = None) -> str:
     lines = ["# Job Shortlist", ""]
-    for rank, vacancy in enumerate(vacancies, start=1):
+    for note in notes or []:
+        lines.extend([f"> {note}", ""])
+    warnings_by_vacancy = [_shortlist_warnings(vacancy) for vacancy in vacancies]
+    shared_warnings = (
+        warnings_by_vacancy[0]
+        if len(vacancies) > 1 and all(set(warnings) == set(warnings_by_vacancy[0]) for warnings in warnings_by_vacancy)
+        else []
+    )
+    for rank, (vacancy, warnings) in enumerate(zip(vacancies, warnings_by_vacancy, strict=True), start=1):
+        published = vacancy.publication_date.date().isoformat() if vacancy.publication_date else "n/a"
         lines.extend(
             [
                 f"## {rank}. {_markdown_title(vacancy.title)} - {vacancy.company or 'Unknown company'}",
-                f"- Score: {vacancy.score}",
-                f"- Role relevance: {'; '.join(vacancy.role_relevance_breakdown) or 'n/a'}",
-                f"- Employment type: {vacancy.employment_type or 'n/a'}",
-                f"- Work format: {vacancy.work_mode or 'n/a'}",
-                f"- Language: {vacancy.detected_language or 'n/a'}",
-                f"- Location restrictions: {', '.join(vacancy.location_restrictions) or 'n/a'}",
-                f"- Salary: {_salary(vacancy)}",
-                f"- Publication date: {vacancy.publication_date.isoformat() if vacancy.publication_date else 'n/a'}",
-                f"- Matched signals: {', '.join(vacancy.matched_signals) or 'n/a'}",
-                f"- Score breakdown: {'; '.join(vacancy.score_breakdown) or 'n/a'}",
+                f"- Score: {vacancy.score} | Work format: {vacancy.work_mode or 'n/a'}"
+                f" | Language: {vacancy.detected_language or 'n/a'} | Salary: {_salary(vacancy)}"
+                f" | Published: {published}",
             ]
         )
-        warnings = _shortlist_warnings(vacancy)
-        if warnings:
+        if vacancy.location_restrictions:
+            lines.append(f"- Location restrictions: {', '.join(vacancy.location_restrictions)}")
+        lines.append(
+            f"- Match: {'; '.join(vacancy.score_breakdown) or 'n/a'}"
+            f" | Signals: {', '.join(vacancy.matched_signals) or 'n/a'}"
+        )
+        if warnings and not shared_warnings:
             lines.append(f"- Warnings: {'; '.join(warnings)}")
         telegram_channels, telegram_posts = _telegram_sources(vacancy)
+        telegram_references = []
         if telegram_channels:
-            lines.append(f"- Telegram channel: {', '.join(f'@{item}' for item in telegram_channels)}")
+            telegram_references.append(f"Telegram channel: {', '.join(f'@{item}' for item in telegram_channels)}")
         if telegram_posts:
-            lines.append(f"- Telegram post: {', '.join(telegram_posts)}")
+            telegram_references.append(f"Telegram post: {', '.join(telegram_posts)}")
+        if telegram_references:
+            lines.append(f"- {' | '.join(telegram_references)}")
         lines.extend(
             [f"- Vacancy URL: {vacancy.apply_url or vacancy.source_url or vacancy.application_url or 'n/a'}", ""]
         )
@@ -369,6 +385,12 @@ def _telegram_sources(vacancy: NormalizedVacancy) -> tuple[list[str], list[str]]
 
 def _shortlist_warnings(vacancy: NormalizedVacancy) -> list[str]:
     warnings = list(vacancy.warnings)
+    if (
+        vacancy.requires_manual_location_review
+        and not manual_location_blocks_shortlist(vacancy)
+        and vacancy.international_remote_eligibility != "explicit_restricted"
+    ):
+        warnings.append(REMOTE_LOCATION_WARNING)
     if vacancy.description_completeness != "complete":
         warnings.append("incomplete description requires manual review")
     return list(dict.fromkeys(warnings))
@@ -413,10 +435,31 @@ def _role_review_markdown(vacancies: list[NormalizedVacancy]) -> str:
 
 
 def _salary(vacancy: NormalizedVacancy) -> str:
+    if vacancy.salary_variants:
+        options = []
+        for variant in vacancy.salary_variants:
+            formatted = _salary_single(vacancy.model_copy(update=variant.model_dump()))
+            country = f", hiring country: {variant.hiring_country}" if variant.hiring_country else ""
+            options.append((variant.salary_gross is not True, f"{formatted} [{variant.source}{country}]"))
+        return " / ".join(option for _, option in sorted(set(options)))
+    return _salary_single(vacancy)
+
+
+def _salary_single(vacancy: NormalizedVacancy) -> str:
     if vacancy.salary_min is None and vacancy.salary_max is None:
         return "n/a"
-    amount = f"{vacancy.salary_min or ''}-{vacancy.salary_max or ''}".strip("-")
-    return " ".join(part for part in [amount, vacancy.salary_currency, vacancy.salary_period] if part)
+    amount = "-".join(str(value) for value in (vacancy.salary_min, vacancy.salary_max) if value is not None)
+    basis = "gross" if vacancy.salary_gross is True else "net"
+    result = " ".join(part for part in [amount, vacancy.salary_currency, vacancy.salary_period, basis] if part)
+    if vacancy.salary_gross is True:
+        estimated = "-".join(
+            f"{net_amount(vacancy, value):.2f}".rstrip("0").rstrip(".")
+            for value in (vacancy.salary_min, vacancy.salary_max)
+            if value is not None
+        )
+        assumption = "gross / (1 + 13/87)" if gross_tax_ratio(vacancy) else "1% ignored"
+        result += f" (~{estimated} net; {assumption})"
+    return result
 
 
 def _source_name(

@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import Preferences
 from .deduplicate import deduplicate_vacancies, vacancies_match
-from .filters import apply_filters
+from .filters import apply_filters, manual_location_blocks_shortlist
 from .models import NormalizedVacancy
 from .normalize import normalize_records
 from .paths import output_paths
@@ -200,7 +200,7 @@ def _window_analysis(
                 vacancy
                 for vacancy in filtered
                 if not vacancy.blocker
-                and not vacancy.requires_manual_location_review
+                and not manual_location_blocks_shortlist(vacancy)
                 and not vacancy.requires_manual_role_review
             ]
         )
@@ -242,7 +242,7 @@ def _existing_relevant_vacancies(preferences: Preferences) -> list[NormalizedVac
             vacancy
             for vacancy in filtered
             if not vacancy.blocker
-            and not vacancy.requires_manual_location_review
+            and not manual_location_blocks_shortlist(vacancy)
             and not vacancy.requires_manual_role_review
         ]
     )

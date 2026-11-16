@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
+from datetime import datetime
 
-from .models import NormalizedVacancy
+from .models import NormalizedVacancy, SalaryVariant
 from .utils import canonical_url, slugify_text
 
 
@@ -94,9 +95,77 @@ def _near_identical_company_title_description(left: NormalizedVacancy, right: No
     return similarity >= 0.98
 
 
-def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:
-    left.blocker = left.blocker or right.blocker
-    left.blocker_reasons = sorted(set(left.blocker_reasons + right.blocker_reasons))
+def _posting_datetime(vacancy: NormalizedVacancy) -> datetime | None:
+    date = vacancy.publication_date
+    if date is None or date.tzinfo is None or vacancy.source in {"greenhouse", "jooble"}:
+        return None
+    basis = vacancy.source_metadata.get("publication_date_basis")
+    if basis and basis != "posting":
+        return None
+    # Legacy LinkedIn records used received_at as a publication-date fallback.
+    if vacancy.source == "linkedin" and not basis and vacancy.source_metadata.get("received_at"):
+        return None
+    return date
+
+
+def _latest_conditions(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy | None:
+    left_date, right_date = _posting_datetime(left), _posting_datetime(right)
+    if left_date is None or right_date is None or left_date == right_date:
+        return None
+    if any(v.description_completeness != "complete" for v in (left, right)):
+        return None
+    if any(v.source_metadata.get("unresolved_version_conflict") for v in (left, right)):
+        return None
+    # A weak company/title/location match does not prove these are versions of one opening.
+    shared = set(_keys(left)) & set(_keys(right))
+    if not any(key.startswith(("url:", "id:")) for key in shared):
+        return None
+    return left if left_date > right_date else right
+
+
+_SALARY_FIELDS = ("salary_min", "salary_max", "salary_currency", "salary_period", "salary_gross", "hiring_country")
+SALARY_CONFLICT_WARNING = "conflicting salary offers across sources; verify salary"
+
+
+def _salary_variants(vacancy: NormalizedVacancy) -> list[SalaryVariant]:
+    if vacancy.salary_variants:
+        return vacancy.salary_variants
+    if vacancy.salary_min is None and vacancy.salary_max is None:
+        return []
+    return [
+        SalaryVariant(
+            **{field: getattr(vacancy, field) for field in _SALARY_FIELDS},
+            source=vacancy.source,
+            source_id=vacancy.source_id,
+        )
+    ]
+
+
+def _merge_salary_variants(left: NormalizedVacancy, right: NormalizedVacancy) -> None:
+    variants = _salary_variants(left) + _salary_variants(right)
+    if not variants:
+        return
+    if left.salary_min is None and left.salary_max is None:
+        for field in _SALARY_FIELDS:
+            setattr(left, field, getattr(variants[0], field))
+    distinct = {tuple(getattr(variant, field) for field in _SALARY_FIELDS) for variant in variants}
+    if len(distinct) < 2:
+        return
+    unique = {variant.model_dump_json(): variant for variant in variants}
+    left.salary_variants = [unique[key] for key in sorted(unique)]
+    left.warnings.append(SALARY_CONFLICT_WARNING)
+
+
+def _merge_unversioned_conditions(left: NormalizedVacancy, right: NormalizedVacancy) -> None:
+    _merge_salary_variants(left, right)
+    # A tax basis belongs to its salary tuple, never to an unrelated amount.
+    salary_fields = ("salary_min", "salary_max", "salary_currency", "salary_period", "hiring_country")
+    if all(getattr(left, field) == getattr(right, field) for field in salary_fields):
+        if left.salary_gross is None:
+            left.salary_gross = right.salary_gross
+        elif right.salary_gross is not None and left.salary_gross != right.salary_gross:
+            left.salary_gross = True
+            left.warnings.append("conflicting gross/net salary markers across sources; verify net pay")
     if (
         right.description_text
         and left.description_text
@@ -123,6 +192,36 @@ def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> Normal
     elif right.requirements_text:
         left.requirements_text = right.requirements_text
     left.categories = sorted(set([*left.categories, *right.categories]), key=str.casefold)
+
+
+def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> NormalizedVacancy:
+    latest = _latest_conditions(left, right)
+    if latest is right:
+        left, right = right, left
+    if latest is None:
+        if any(
+            getattr(left, field) != getattr(right, field)
+            for field in (
+                "description_text",
+                "requirements_text",
+                "salary_min",
+                "salary_max",
+                "salary_gross",
+                "salary_currency",
+                "salary_period",
+                "hiring_country",
+                "location_restrictions",
+                "work_mode",
+            )
+        ):
+            left.warnings.append("conflicting vacancy versions; posting datetime does not establish replacement")
+            left.source_metadata["unresolved_version_conflict"] = True
+        _merge_unversioned_conditions(left, right)
+    else:
+        left.source_metadata["conditions_selected_by"] = "posting_datetime"
+    # Availability and application evidence survive content-version selection.
+    left.blocker = left.blocker or right.blocker
+    left.blocker_reasons = sorted(set(left.blocker_reasons + right.blocker_reasons))
     left.source_queries = sorted(set(left.source_queries + right.source_queries))
     left.sources = sorted(set((left.sources or [left.source]) + (right.sources or [right.source])))
     left.source_urls = sorted(

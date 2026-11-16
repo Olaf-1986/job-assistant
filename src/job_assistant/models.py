@@ -7,6 +7,17 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class SalaryVariant(BaseModel):
+    salary_min: float | None = None
+    salary_max: float | None = None
+    salary_currency: str | None = None
+    salary_period: str | None = None
+    salary_gross: bool | None = None
+    hiring_country: str | None = None
+    source: str
+    source_id: str | None = None
+
+
 class NormalizedVacancy(BaseModel):
     source: str
     source_id: str | None = None
@@ -35,6 +46,10 @@ class NormalizedVacancy(BaseModel):
     salary_max: float | None = None
     salary_currency: str | None = None
     salary_period: str | None = None
+    # None preserves legacy records and means net by the user's explicit policy.
+    salary_gross: bool | None = None
+    hiring_country: str | None = None
+    salary_variants: list[SalaryVariant] = Field(default_factory=list)
     publication_date: datetime | None = None
     expiry_date: datetime | None = None
     application_url: str | None = None

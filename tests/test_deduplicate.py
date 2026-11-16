@@ -110,6 +110,20 @@ def test_deduplicate_keeps_near_identical_text_when_title_differs():
     assert len(result) == 2
 
 
+def test_department_in_parentheses_distinguishes_jobs_at_same_company_and_location():
+    first = _vacancy("linkedin", "li-1", "https://example.test/payments", "Payments analysis")
+    second = _vacancy("linkedin", "li-2", "https://example.test/warehouse", "Warehouse analysis")
+    first.company = second.company = "Example Group"
+    first.location_restrictions = second.location_restrictions = ["Tbilisi"]
+    first.title = "Business Analyst (Payments)"
+    second.title = "Business Analyst (Warehouse)"
+
+    result, duplicates = deduplicate_vacancies([first, second])
+
+    assert duplicates == 0
+    assert len(result) == 2
+
+
 def test_deduplicate_matches_near_identical_description_when_sections_are_reordered():
     introduction = "Analyze business requirements and stakeholder needs. " * 20
     responsibilities = "Define API contracts and document system integrations. " * 20

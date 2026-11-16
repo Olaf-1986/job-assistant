@@ -173,7 +173,12 @@ _REQUIRED_LANGUAGE_PREFIXES = (
         r"\bflie(?:ß|ss)end|"
         r"\b(?:must|required\s+to|need\s+to)\s+(?:speak|read|write|know|use|communicate\s+in)|"
         r"\b(?:required|mandatory|essential)\s+(?:command|knowledge|proficiency|fluency)\s+(?:of|in))"
-        r"\s+(?:the\s+)?[^.;:\n]{0,80}$",
+        r"\s+(?:the\s+)?"
+        r"(?:both\s+)?"
+        r"(?:(?:business|conversational|written|spoken)(?:\s+(?:and|&)\s+(?:written|spoken))?\s+)?"
+        rf"(?:(?:{'|'.join(LANGUAGE_NAME_PATTERNS.values())})"
+        r"(?:\s+languages?)?(?:\s*\(\s*[abc][12]\s*\))?\s*"
+        r"(?:,\s*(?:(?:and|or)\b\s*)?|[/&]\s*|(?:and|or)\b\s*)(?:in\s+)?)*$",
         re.IGNORECASE,
     ),
     re.compile(
@@ -274,6 +279,57 @@ def _canonical_language_name(name: str) -> str:
         if re.fullmatch(rf"(?:{language_pattern})", name, re.IGNORECASE):
             return language
     return name.capitalize()
+
+
+def has_advanced_spanish_requirement(text: str) -> bool:
+    """Recognize mandatory C1/C2/fluency/native Spanish, with local optionality.
+
+    Keep this separate from the language allowlist: Spanish descriptions and
+    intermediate Spanish requirements remain supported.
+    """
+    spanish = rf"(?:{LANGUAGE_NAME_PATTERNS['Spanish']})"
+    other_supported = rf"(?:{LANGUAGE_NAME_PATTERNS['English']}|{LANGUAGE_NAME_PATTERNS['Russian']})"
+    advanced = r"(?:c[12](?:\s*/\s*c?[12])?|fluent|fluency|native(?:[- ]level)?|nativ[oa]|fluido)"
+    bridge = r"(?:\s|[:,(/-]|\b(?:in|of|at|the|language|is|required|level|nivel|на|язык[\wё]*|уров[\wё]*)\b){0,60}"
+    shared_language = rf"(?:{other_supported}\s+(?:and|&|и|y)\s+)?"
+    pattern = re.compile(
+        rf"\b(?:{advanced}{bridge}{shared_language}{spanish}|{spanish}{bridge}{advanced})\b|"
+        rf"\bсвободн[\wё]*\s+владени[\wё]*\s+{spanish}\b|"
+        rf"\bносител[\wё]*\s+{spanish}\b",
+        re.IGNORECASE,
+    )
+    optional = re.compile(
+        r"\b(?:optional|preferred|preferably|desirable|bonus|nice[- ]to[- ]have|a\s+plus|"
+        r"not\s+(?:strictly\s+)?(?:required|mandatory|essential|necessary|fluent|native)|"
+        r"no\s+(?:need|requirement)|желател[\wё]*|не\s+(?:требуется|обязател[\wё]*|нуж[\wё]*)|"
+        r"будет\s+плюсом|опционал[\wё]*|deseable|preferible|opcional|no\s+es\s+obligatorio)\b",
+        re.IGNORECASE,
+    )
+    alternative = re.compile(
+        rf"(?:{spanish}[^.;\n]{{0,35}}\b(?:or|или|o)\s+(?:{LANGUAGE_NAME_PATTERNS['English']}|"
+        rf"{LANGUAGE_NAME_PATTERNS['Russian']}))|"
+        rf"(?:(?:{LANGUAGE_NAME_PATTERNS['English']}|{LANGUAGE_NAME_PATTERNS['Russian']})"
+        rf"[^.;\n]{{0,35}}\b(?:or|или|o)\s+(?:{advanced}\s+)?{spanish})",
+        re.IGNORECASE,
+    )
+    for clause in re.split(r"[.;!?]|\b(?:but|however|whereas|но|pero)\b", text, flags=re.IGNORECASE):
+        for match in pattern.finditer(clause):
+            if alternative.search(clause):
+                continue
+            # Another language's optionality must not weaken a mandatory Spanish requirement.
+            start, end = 0, len(clause)
+            for separator in re.finditer(r"\n|\b(?:and|и|y)\b", clause, re.IGNORECASE):
+                if separator.end() < match.start():
+                    start = separator.end()
+                elif separator.start() > match.end():
+                    end = separator.start()
+                    break
+            local = clause[start:end]
+            if re.search(r"\b(?:work|working|communicate|collaborate)\b[^.;]{0,50}\bwith\s+$", clause[: match.start()]):
+                continue
+            if not optional.search(local):
+                return True
+    return False
 
 
 def _is_explicit_language_requirement(text: str, start: int, end: int) -> bool:

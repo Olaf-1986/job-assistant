@@ -34,6 +34,22 @@ Different-URL reposts are deduplicated only when normalized company and title ar
 word multisets overlap by at least 98%, in addition to the existing exact identity keys.
 Known monthly salary maxima at or below `200,000 RUB` equivalent are blocked. With no maximum, known minima below
 `150,000 RUB` equivalent are also blocked; USD and GEL use the configured rule-of-thumb conversion constants.
+These are net thresholds; an unspecified basis is assumed net. Structured gross markers are preserved. The user's
+screening assumption uses gross / (1 + 13/87), equivalently gross × 87/100 for Russia; other markets ignore the
+stated Georgia 1%. Explicit `hiring_country`
+(or an explicit supported hiring-country statement in the description) takes precedence; otherwise RUB/RUR/₽ implies Russia.
+Filtering and Markdown share the estimate; stored amounts stay gross. This is a user assumption, not a tax model.
+For duplicates sharing ID/URL, unequal timezone-aware posting datetimes select the newer complete conditions;
+email receipt/capture/fetch timestamps do not. Equal/missing dates and partial or unresolved versions retain evidence
+with a warning. Closure/application blockers persist. Raw-store availability checks retain their separate semantics.
+Conflicting salary offers are preserved with provenance in JSON, CSV `salary_variants`, and Markdown; the salary filter blocks only when all offers are evaluable
+and below threshold. Mixed or unknown offers remain available for review with a warning.
+Remote technology/client references and negated remote options do not establish remote work; hours are unrestricted.
+Mandatory Spanish C1/C2/fluent/native requirements are blocked independently of the ru/en/es description allowlist.
+Remote geography uncertainty is warning-only for normal shortlist eligibility, including ambiguous Europe/EMEA
+labels; explicit restrictions, unknown work modes needing review, and RVC's prior review requirement stay blocking.
+Shortlist cards omit role-relevance/employment rows, combine match evidence, and omit identical warning sets
+across multiple displayed cards; warnings remain in structured exports. Detailed fields remain in JSON/CSV. No percentage-match threshold is enabled.
 Bank of Georgia is permanently excluded. Reiz tech, Specific-Group, Keepgo, Dotmatics, Mad Brains, Selecty, Sibedge,
 and Научсофт are excluded through 6 November 2026 inclusive; the existing Andersen exclusion lasts through 8 November.
 
