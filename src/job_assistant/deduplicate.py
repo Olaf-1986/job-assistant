@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from .models import NormalizedVacancy, SalaryVariant
 from .utils import canonical_url, slugify_text
@@ -14,7 +15,7 @@ def deduplicate_vacancies(vacancies: list[NormalizedVacancy]) -> tuple[list[Norm
     indexes: dict[str, int] = {}
     duplicates = 0
     for vacancy in vacancies:
-        incoming_keys = set(_keys(vacancy))
+        incoming_keys = vacancy_identity_keys(vacancy)
         matching_indexes = sorted(
             {indexes[key] for key in incoming_keys if key in indexes}
             | {
@@ -41,52 +42,81 @@ def deduplicate_vacancies(vacancies: list[NormalizedVacancy]) -> tuple[list[Norm
         duplicates += 1
         merged = merge_vacancies(merged, vacancy)
         result[existing_index] = merged
-        merged_keys.update(_keys(merged))
+        merged_keys.update(vacancy_identity_keys(merged))
         key_sets[existing_index] = merged_keys
         indexes = {key: index for index, keys in enumerate(key_sets) for key in keys}
     return result, duplicates
 
 
-def _keys(vacancy: NormalizedVacancy) -> list[str]:
-    keys: list[str] = []
+def url_identity_keys(value: str | None) -> set[str]:
+    url = canonical_url(value)
+    if not url:
+        return set()
+    keys = {f"url:{url}"}
+    # A Telegram/ATS card can expose a provider's vacancy URL without its source_ids.
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return keys
+    prefix, _, number = parts.path.rstrip("/").rpartition("/")
+    if number.isdecimal():
+        if host == "www.linkedin.com" and prefix == "/jobs/view":
+            keys.add(f"id:linkedin:{number}")
+        if (host in {"hh.ru", "headhunter.ge"} or host.endswith((".hh.ru", ".headhunter.ge"))) and prefix == "/vacancy":
+            keys.add(f"id:headhunter:{number}")
+    return keys
+
+
+def vacancy_identity_keys(vacancy: NormalizedVacancy) -> set[str]:
+    """Exact keys shared by live deduplication and persistent exclusion history."""
+    keys: set[str] = set()
     for url_field in [vacancy.apply_url, vacancy.application_url, vacancy.source_url, *vacancy.source_urls]:
-        url = canonical_url(url_field)
-        if url:
-            keys.append(f"url:{url}")
+        keys.update(url_identity_keys(url_field))
     if vacancy.source_id:
-        keys.append(f"id:{vacancy.source}:{vacancy.source_id}")
+        keys.add(f"id:{vacancy.source}:{vacancy.source_id}")
     for source, ids in vacancy.source_ids.items():
-        keys.extend(f"id:{source}:{source_id}" for source_id in ids if source_id)
+        keys.update(f"id:{source}:{source_id}" for source_id in ids if source_id)
     title = slugify_text(vacancy.title)
     company = slugify_text(vacancy.company)
     location = slugify_text(", ".join(vacancy.location_restrictions))
     if title and company and location:
-        keys.append(f"company-title-location:{company}::{title}::{location}")
+        keys.add(f"company-title-location:{company}::{title}::{location}")
     description = slugify_text(vacancy.description_text)
     if len(description) >= 80:
         digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
-        keys.append(f"description:{digest}")
+        keys.add(f"description:{digest}")
     return keys
 
 
 def vacancies_match(left: NormalizedVacancy, right: NormalizedVacancy) -> bool:
     """Return whether the shared deterministic duplicate keys identify the same vacancy."""
-    return bool(set(_keys(left)) & set(_keys(right))) or _near_identical_company_title_description(left, right)
+    return bool(
+        vacancy_identity_keys(left) & vacancy_identity_keys(right)
+    ) or _near_identical_company_title_description(left, right)
+
+
+MIN_REPOST_WORDS = 40
+
+
+def repost_group(vacancy: NormalizedVacancy) -> str:
+    company, title = slugify_text(vacancy.company), slugify_text(vacancy.title)
+    return f"{company}/{title}" if company and title else ""
 
 
 def _near_identical_company_title_description(left: NormalizedVacancy, right: NormalizedVacancy) -> bool:
     """Match reposts whose URLs differ but company, title, and substantive word content do not."""
-    left_company = slugify_text(left.company)
-    right_company = slugify_text(right.company)
-    if not left_company or left_company != right_company:
+    group = repost_group(left)
+    if not group or group != repost_group(right):
         return False
-    left_title = slugify_text(left.title)
-    right_title = slugify_text(right.title)
-    if not left_title or left_title != right_title:
-        return False
-    left_words = slugify_text(left.description_text).split()
-    right_words = slugify_text(right.description_text).split()
-    if min(len(left_words), len(right_words)) < 40:
+    return repost_descriptions_match(slugify_text(left.description_text), slugify_text(right.description_text))
+
+
+def repost_descriptions_match(left: str, right: str) -> bool:
+    """Compare normalized descriptions after exact company and title matching."""
+    left_words = left.split()
+    right_words = right.split()
+    if min(len(left_words), len(right_words)) < MIN_REPOST_WORDS:
         return False
     left_counts = Counter(left_words)
     right_counts = Counter(right_words)
@@ -117,7 +147,7 @@ def _latest_conditions(left: NormalizedVacancy, right: NormalizedVacancy) -> Nor
     if any(v.source_metadata.get("unresolved_version_conflict") for v in (left, right)):
         return None
     # A weak company/title/location match does not prove these are versions of one opening.
-    shared = set(_keys(left)) & set(_keys(right))
+    shared = vacancy_identity_keys(left) & vacancy_identity_keys(right)
     if not any(key.startswith(("url:", "id:")) for key in shared):
         return None
     return left if left_date > right_date else right
@@ -225,7 +255,12 @@ def merge_vacancies(left: NormalizedVacancy, right: NormalizedVacancy) -> Normal
     left.source_queries = sorted(set(left.source_queries + right.source_queries))
     left.sources = sorted(set((left.sources or [left.source]) + (right.sources or [right.source])))
     left.source_urls = sorted(
-        set([url for url in [*left.source_urls, *right.source_urls, left.source_url, right.source_url] if url])
+        {
+            url
+            for vacancy in (left, right)
+            for url in (*vacancy.source_urls, vacancy.source_url, vacancy.apply_url, vacancy.application_url)
+            if url
+        }
     )
     left_references = left.source_metadata.get("source_references", [])
     right_references = right.source_metadata.get("source_references", [])

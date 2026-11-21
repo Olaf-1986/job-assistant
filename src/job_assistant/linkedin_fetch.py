@@ -54,6 +54,7 @@ from .linkedin_types import (
 )
 from .models import NormalizedVacancy
 from .role_relevance import title_prefilter_matches
+from .shortlist_history import defer_shortlist_publication
 
 MIN_PAGE_DELAY_SECONDS = 5
 MAX_PAGE_DELAY_SECONDS = 20
@@ -93,6 +94,7 @@ def fetch_pending_linkedin(
     recheck_since_days: int | None = None,
     delay_sampler: Callable[[int, int], float] = random.randint,
     sleeper: Callable[[float], None] = time.sleep,
+    include_seen: bool = False,
 ) -> dict[str, Any]:
     """Process pending queue items through the shared LinkedIn import pipeline."""
     if limit is not None and limit < 1:
@@ -110,10 +112,11 @@ def fetch_pending_linkedin(
     if page_fetcher is None:
         page_fetcher = _playwright_page_fetcher(headless=False)
         close_fetcher = True
+    stats: dict[str, Any] = {}
     try:
         candidates = load_queue(preferences)
         validate_linkedin_queue(candidates)
-        stats: dict[str, Any] = {
+        stats = {
             "opened": 0,
             "imported": 0,
             "title_prefilter_rejected": 0,
@@ -183,7 +186,8 @@ def fetch_pending_linkedin(
                 if dry_run:
                     stats["imported"] += 1
                 else:
-                    _import_vacancy(preferences, vacancy)
+                    with defer_shortlist_publication():
+                        _import_vacancy(preferences, vacancy)
                     stats["imported"] += 1
             except LinkedInStopRun as exc:
                 _raise_recorded_linkedin_stop(preferences, exc)
@@ -208,12 +212,20 @@ def fetch_pending_linkedin(
                 delay_sampler=delay_sampler,
                 sleeper=sleeper,
                 dry_run=dry_run,
+                include_seen=include_seen,
             )
-        if not dry_run and (stats["expired"] or stats["recheck_expired"]):
+        if not dry_run and (stats["imported"] or stats["expired"] or stats["recheck_expired"]):
             from .persistence import rebuild_from_authoritative_sources
 
-            rebuild_from_authoritative_sources(preferences)
+            rebuild_from_authoritative_sources(preferences, include_seen=include_seen)
         return stats
+    except LinkedInStopRun:
+        # Publish the successfully imported records from a standalone interrupted batch.
+        if not dry_run and stats.get("imported"):
+            from .persistence import rebuild_from_authoritative_sources
+
+            rebuild_from_authoritative_sources(preferences, include_seen=include_seen)
+        raise
     finally:
         if close_fetcher and hasattr(page_fetcher, "close"):
             page_fetcher.close()
@@ -329,8 +341,9 @@ def _recheck_linkedin_shortlist(
     delay_sampler: Callable[[int, int], float],
     sleeper: Callable[[float], None],
     dry_run: bool,
+    include_seen: bool,
 ) -> None:
-    candidates = _linkedin_shortlist_candidates(preferences, since_days)
+    candidates = _linkedin_shortlist_candidates(preferences, since_days, include_seen=include_seen)
     confirmed = 0
     for vacancy in candidates:
         if confirmed >= shortlist_size:
@@ -371,7 +384,9 @@ def _recheck_linkedin_shortlist(
         )
 
 
-def _linkedin_shortlist_candidates(preferences: Preferences, since_days: int | None) -> list[NormalizedVacancy]:
+def _linkedin_shortlist_candidates(
+    preferences: Preferences, since_days: int | None, *, include_seen: bool
+) -> list[NormalizedVacancy]:
     from .persistence import prepare_authoritative_vacancies
 
     _, all_vacancies, _ = prepare_authoritative_vacancies(preferences)
@@ -383,7 +398,7 @@ def _linkedin_shortlist_candidates(preferences: Preferences, since_days: int | N
             for vacancy in vacancies
             if vacancy.publication_date is None or _as_utc(vacancy.publication_date) >= cutoff
         ]
-    return sorted_shortlist(vacancies, len(vacancies))
+    return sorted_shortlist(vacancies, len(vacancies), include_seen=include_seen)
 
 
 def _linkedin_vacancy_job_id(vacancy: NormalizedVacancy) -> str | None:

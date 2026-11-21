@@ -142,7 +142,9 @@ def test_deduplicated_shortlist_excludes_previous_identity_and_backfills(tmp_pat
     )
     path = tmp_path / "deduplicated_shortlist.md"
 
-    count = export_deduplicated_shortlist(current, previous, 10, path)
+    preferences.outputs.directory = str(tmp_path)
+    export_all([], previous, preferences, BatchStats(), [])
+    count = export_deduplicated_shortlist(current, preferences)
 
     markdown = path.read_text(encoding="utf-8")
     assert count == 1

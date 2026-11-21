@@ -14,7 +14,7 @@ from .env import load_project_env
 load_project_env()
 
 import typer
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 from typer.core import TyperGroup
@@ -57,11 +57,12 @@ from .publication import PublicationError, recover_publication
 from .raw_store import StoreError, read_raw_store
 from .rvc_cli import register_rvc_commands
 from .rvc_store import RvcError
+from .shortlist_history import defer_shortlist_publication
 from .sources import LINKEDIN_EXECUTION_MODE, already_succeeded_today, load_statuses, mark_status, write_statuses
 from .telegram_audit import TelegramAuditResult, audit_telegram
 from .telegram_client import TelegramConnectionError, TelegramError, telegram_login
 from .telegram_ingestion import TelegramFetchResult, fetch_telegram
-from .utils import read_json_strict, write_json
+from .utils import write_json
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 console = Console()
@@ -94,6 +95,9 @@ class StorageErrorGroup(TyperGroup):
 
 app = typer.Typer(cls=StorageErrorGroup, help="Local job-search assistant vertical slice.")
 register_rvc_commands(app, console)
+
+
+IncludeSeen = Annotated[bool, typer.Option("--include-seen", help="Allow previously published vacancies for this run.")]
 
 
 class FetchWindow(str, Enum):
@@ -171,6 +175,7 @@ def fetch(
         "--last",
         help="Publication window: day, 2-days, 3-days, week, 2-weeks, 3-weeks, or month.",
     ),
+    include_seen: IncludeSeen = False,
 ) -> StageResult:
     """Fetch vacancies, normalize, deduplicate, score, and export outputs."""
     preferences = _load_or_exit(shortlist_size)
@@ -193,7 +198,10 @@ def fetch(
         return _fetch_stage_result(_source_key(source), stats, skipped)
     status = "success" if outcome is FetchOutcome.complete else "incomplete"
     summary = rebuild_from_authoritative_sources(
-        preferences, stats, headhunter_raw=raw_records if outcome is FetchOutcome.complete else None
+        preferences,
+        stats,
+        headhunter_raw=raw_records if outcome is FetchOutcome.complete else None,
+        include_seen=include_seen,
     )
     mark_status(
         preferences,
@@ -218,6 +226,7 @@ def fetch_all(
         "--last",
         help="Publication window: day, 2-days, 3-days, week, 2-weeks, 3-weeks, or month.",
     ),
+    include_seen: IncludeSeen = False,
 ) -> list[StageResult]:
     """Run all enabled automatic sources with error isolation."""
     preferences = _load_or_exit(shortlist_size)
@@ -280,7 +289,9 @@ def fetch_all(
         headhunter_raw = merge_headhunter_raw(read_headhunter_raw(preferences), email_raw)
     else:
         headhunter_raw = None
-    summary = rebuild_from_authoritative_sources(preferences, combined_stats, headhunter_raw=headhunter_raw)
+    summary = rebuild_from_authoritative_sources(
+        preferences, combined_stats, headhunter_raw=headhunter_raw, include_seen=include_seen
+    )
     # A failed publication must not trip the one-successful-run-per-day guard.
     for source, raw_records, stats, skipped, outcome in source_results:
         mark_status(
@@ -306,6 +317,7 @@ def email_sync(
     full_refresh: bool = typer.Option(
         False, "--full-refresh", help="Ignore local email UID/Message-ID state and rebuild email artifacts."
     ),
+    include_seen: IncludeSeen = False,
 ) -> None:
     """Read Gmail job alerts from the configured IMAP mailbox."""
     preferences = _load_or_exit()
@@ -327,7 +339,9 @@ def email_sync(
         "errors": result.stats.errors,
     }
     if not dry_run:
-        summary = rebuild_from_authoritative_sources(preferences, result.stats, headhunter_raw=headhunter_raw)
+        summary = rebuild_from_authoritative_sources(
+            preferences, result.stats, headhunter_raw=headhunter_raw, include_seen=include_seen
+        )
     _print_summary(summary)
     console.print(
         f"Email candidates: {len(result.candidates)}; LinkedIn manual queue: {result.linkedin_queue_count}; "
@@ -508,6 +522,7 @@ def linkedin_fetch(
         max=90,
         help="Process and recheck only records in this publication/receipt window; undated records remain eligible.",
     ),
+    include_seen: IncludeSeen = False,
 ) -> StageResult:
     """Fetch queued LinkedIn vacancies through a dedicated Playwright browser profile."""
     if login:
@@ -529,6 +544,7 @@ def linkedin_fetch(
             pending_since_days=since_days,
             recheck_shortlist_size=preferences.run.shortlist_size if recheck_shortlist else 0,
             recheck_since_days=since_days,
+            include_seen=include_seen,
         )
     except LinkedInStopRun as exc:
         if isinstance(exc.__cause__, OSError):
@@ -614,6 +630,7 @@ def telegram_fetch(
         help="With --dry-run, export one count-ranked shortlist per channel for the full --since-days window.",
     ),
     shortlist_size: int | None = typer.Option(None, "--shortlist-size", "-n", min=1, max=500),
+    include_seen: IncludeSeen = False,
 ) -> StageResult:
     """Read allowlisted joined Telegram sources through the user API."""
     if limit is not None and not dry_run:
@@ -644,6 +661,7 @@ def telegram_fetch(
                 dry_run=dry_run,
                 all_history=all_history,
                 ignore_checkpoints=export_channel_check,
+                include_seen=include_seen,
             )
         )
     except TelegramError as exc:
@@ -654,7 +672,7 @@ def telegram_fetch(
         _print_telegram_targets(result.eligible_targets)
     if export_shortlist_preview:
         path = output_paths(preferences)["telegram_shortlist"]
-        count = export_shortlist(result.eligible_targets, len(result.eligible_targets), path)
+        count = export_shortlist(result.eligible_targets, len(result.eligible_targets), path, include_seen=include_seen)
         console.print(f"Telegram preview shortlist: {count} records written to {path}.")
     if export_channel_check:
         directory = output_paths(preferences)["dir"] / (
@@ -664,7 +682,7 @@ def telegram_fetch(
             source: result.eligible_targets_by_source.get(source, []) for source in result.source_reports
         }
         channel_errors = {source: report.error for source, report in result.source_reports.items()}
-        exported = export_channel_shortlists(vacancies_by_channel, channel_errors, directory)
+        exported = export_channel_shortlists(vacancies_by_channel, channel_errors, directory, include_seen=include_seen)
         console.print(f"Telegram channel check: {len(exported)} channel files written to {directory}.")
     if not dry_run:
         status = "success" if not result.errors else "partial"
@@ -709,6 +727,7 @@ def import_manual(
     title: Annotated[str | None, typer.Option(help="Explicit vacancy title")] = None,
     company: Annotated[str | None, typer.Option(help="Explicit company name")] = None,
     language: Annotated[str | None, typer.Option(help="Explicit language code")] = None,
+    include_seen: IncludeSeen = False,
 ) -> None:
     """Import user-provided vacancy text without fetching the URL."""
     preferences = _load_or_exit()
@@ -737,7 +756,9 @@ def import_manual(
     existing_raw = read_raw_store(paths["manual_imports"], "manual")
     existing_raw.append(raw)
     write_json(paths["manual_imports"], existing_raw)
-    summary = rebuild_from_authoritative_sources(preferences, BatchStats(raw_records_received=1))
+    summary = rebuild_from_authoritative_sources(
+        preferences, BatchStats(raw_records_received=1), include_seen=include_seen
+    )
     _print_summary(summary)
 
 
@@ -750,6 +771,7 @@ def quick_fetch(
     ),
     shortlist_size: int = typer.Argument(min=1, max=500, help="Maximum shortlist entries."),
     force: bool = typer.Option(False, "--force", help="Allow another successful HeadHunter fetch today."),
+    include_seen: IncludeSeen = False,
 ) -> None:
     """Refresh sources and publish the canonical shortlist of this run.
 
@@ -772,7 +794,8 @@ def quick_fetch(
 
     def run_stage(name, callback, **kwargs):
         try:
-            result = ctx.invoke(callback, **kwargs)
+            with defer_shortlist_publication():
+                result = ctx.invoke(callback, **kwargs)
         except SourceStageExit as exc:
             stages.append(exc.result)
         except (StoreError, PublicationError, RvcError, OSError, ValidationError, json.JSONDecodeError):
@@ -811,6 +834,7 @@ def quick_fetch(
             prioritize=False,
             shortlist_size=shortlist_size,
             recheck_shortlist=True,
+            include_seen=include_seen,
             since_days=window.days,
         )
     if source in {QuickSource.all, QuickSource.telegram}:
@@ -837,7 +861,14 @@ def quick_fetch(
     )
     ctx.meta["qf_stages"] = stages
     try:
-        ctx.invoke(shortlist, ctx=ctx, source=shortlist_source, size=shortlist_size, since_days=window.days)
+        ctx.invoke(
+            shortlist,
+            ctx=ctx,
+            source=shortlist_source,
+            size=shortlist_size,
+            since_days=window.days,
+            include_seen=include_seen,
+        )
     finally:
         ctx.meta.pop("qf_stages", None)
     table = Table(title="qf stages")
@@ -872,6 +903,7 @@ def shortlist(
         None, "--since-days", min=1, max=90, help="Exclude source records older than this many days."
     ),
     ctx: typer.Context = None,
+    include_seen: IncludeSeen = False,
 ) -> None:
     """Publish combined_shortlist.md for this run from valid authoritative stores.
 
@@ -889,19 +921,13 @@ def shortlist(
         stages=stages, errors=[f"{stage.stage}: {stage.reason}" for stage in stages if stage.status == "error"]
     )
     summary = rebuild_from_authoritative_sources(
-        preferences, stats, shortlist_source=source_key, published_since=published_since
+        preferences, stats, shortlist_source=source_key, published_since=published_since, include_seen=include_seen
     )
     _print_summary(summary)
     if source_key is not None:
-        paths = output_paths(preferences)
-        shortlist_path = {
-            "headhunter": paths["headhunter_shortlist"],
-            "linkedin": paths["linkedin_shortlist"],
-            "telegram": paths["telegram_shortlist"],
-            "rvc": paths["rvc_shortlist"],
-        }[source_key]
         count = summary["shortlist_count"]
-        console.print(f"{source_key.title()}-only shortlist: {count} records written to {shortlist_path}.")
+        report = output_paths(preferences)["combined_shortlist"]
+        console.print(f"{source_key.title()}-only shortlist: {count} records written to {report}.")
 
 
 @app.command("recover-output")
@@ -915,36 +941,14 @@ def recover_output() -> None:
 @app.command("shortlist-deduplicated")
 def shortlist_deduplicated(
     size: int | None = typer.Option(None, "--size", "-n", min=1, max=500, help="Maximum new shortlist entries."),
+    include_seen: IncludeSeen = False,
 ) -> None:
-    """Write vacancies absent from the combined shortlist saved by the previous invocation."""
+    """Publish a ranked shortlist using the cumulative delivery history."""
     preferences = _load_or_exit(size)
-    paths = output_paths(preferences)
-    recover_publication(paths["dir"])
-    previous_path = paths["previous_combined_shortlist"]
-    try:
-        previous = (
-            TypeAdapter(list[NormalizedVacancy]).validate_python(read_json_strict(previous_path))
-            if previous_path.exists()
-            else []
-        )
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValidationError):
-        console.print(
-            "[red]Invalid previous-combined baseline; file left unchanged. Fix or remove it before retrying.[/red]"
-        )
-        raise typer.Exit(1) from None
-    _, vacancies, _ = prepare_authoritative_vacancies(preferences)
-    count = export_deduplicated_shortlist(
-        vacancies,
-        previous,
-        preferences.run.shortlist_size,
-        paths["deduplicated_shortlist"],
-        baseline_path=paths["previous_combined_shortlist"],
-        directory=paths["dir"],
-    )
-    baseline = "initialized" if not previous else "advanced"
+    _, vacancies, _ = prepare_authoritative_vacancies(preferences, compare_history=False)
+    count = export_deduplicated_shortlist(vacancies, preferences, include_seen=include_seen)
     console.print(
-        f"Deduplicated shortlist: {count} records written to {paths['deduplicated_shortlist']}; "
-        f"previous-combined baseline {baseline}."
+        f"Deduplicated shortlist: {count} records written to {output_paths(preferences)['deduplicated_shortlist']}."
     )
 
 

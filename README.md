@@ -134,12 +134,36 @@ saved. A final publication failure retains the publication journal described bel
 The same temporary shortlist override is also available as `fetch -n SIZE`, `fetch-all -n SIZE`,
 `linkedin-fetch -n SIZE`, `telegram-fetch -n SIZE`, and `shortlist -n SIZE`.
 
-`shortlist-deduplicated -n SIZE` writes the highest-ranked current eligible vacancies that were absent from the
-combined shortlist saved by its previous invocation to `output/deduplicated_shortlist.md`. It uses the same stable
-vacancy identity rules as the shared pipeline and computes the current candidates directly from authoritative stores.
-After the Markdown file is written successfully, it advances `output/previous_combined_shortlist.json` to the current
-combined shortlist. The first invocation has no prior baseline, so all current eligible entries are new and establish
-the baseline for the next invocation.
+### Previously published vacancies
+
+A final delivery consists of the ranked cards in `output/combined_shortlist.md` after a standalone shared export
+(including a fetch or import that rebuilds it), or in `output/deduplicated_shortlist.md` after an explicit
+`shortlist-deduplicated`. Each publication adds those cards to the same cumulative `output/shortlist_history.json`.
+A source-specific run records only its canonical selection. Automatic source views, channel checks, previews, and
+dry runs contribute zero deliveries. During `qf` and per-item LinkedIn imports, intermediate rebuilds can save
+raw records and refresh derived views. The final publication writes the canonical report, history, and summary
+together. A completed partial `qf` counts as a delivery even when the command exits 1.
+
+Ranking skips matches from every previous delivery before applying the size limit, so lower-ranked fresh candidates
+can fill the shortlist. An empty report preserves history. These commands allow repeats for one publication.
+
+```bash
+uv run qf 1w all 20 --include-seen
+uv run python -m job_assistant shortlist --source li -n 20 --include-seen
+uv run python -m job_assistant shortlist-deduplicated -n 20 --include-seen
+```
+
+The option keeps ordinary eligibility checks, including closure and confirmed-application blockers. New entries
+in that run also enter history. The shared identity rules below apply across sources and to reposts. Raw and
+combined vacancy stores retain seen records. The structured `previously_exported` field describes the comparison
+at selection time.
+
+On first publication the exporter seeds the history from ranked vacancy links in available canonical, deduplicated,
+and legacy shortlist snapshots, including saved repair copies. It also retains identities from
+`recovered_shortlist_state.json` together with the original evidence and exclusions. A matching historical
+card can acquire aliases from the legacy `previous_combined_shortlist.json`. That baseline alone cannot establish
+delivery. Source views, preview files and `combined_jobs.json` supply no delivery evidence. Older deliveries whose
+snapshots and identities are missing remain unknown. Restore a damaged history before retrying publication.
 
 `fetch-all` automatically fetches only HeadHunter. It then runs enabled read-only email ingestion as a separate stage
 before rebuilding outputs. `fetch --source linkedin` starts neither LinkedIn workflow and makes no LinkedIn request; it
@@ -210,7 +234,7 @@ Do not use reports while `.publication.json` exists, or delete the journal or it
 If either is damaged or missing data, automatic recovery stops without further replacements; restore the complete
 staging set from a backup before retrying. Interrupted preparation may leave unreferenced staging directories, but
 does not change the published files. A leftover `.publication.lock` file is normal: the operating-system lock is
-released on process exit. The deduplicated shortlist and its comparison baseline use the same publication protocol;
+released on process exit. Both final shortlist reports use the same publication protocol with their cumulative history.
 Telegram raw/failure/checkpoint updates and each channel-check report set also publish together. Standalone Markdown
 exports use a flushed temporary file and replacement instead of truncating the destination.
 

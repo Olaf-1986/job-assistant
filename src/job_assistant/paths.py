@@ -23,6 +23,7 @@ def output_paths(preferences: Preferences) -> dict[str, Path]:
         "deduplicated_shortlist": directory / preferences.outputs.deduplicated_shortlist_file,
         "previous_combined_shortlist": directory / preferences.outputs.previous_combined_shortlist_file,
         "recovered_state": directory / "recovered_shortlist_state.json",
+        "shortlist_history": directory / "shortlist_history.json",
         "manual_imports": directory / preferences.outputs.manual_imports_file,
         "email_candidates": directory / preferences.outputs.email_candidates_file,
         "linkedin_email_queue": directory / preferences.outputs.linkedin_email_queue_file,

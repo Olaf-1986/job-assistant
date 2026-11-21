@@ -631,6 +631,7 @@ def test_telegram_fetch_cli_forwards_all_history_and_prints_eligible_preview(mon
             "dry_run": True,
             "all_history": True,
             "ignore_checkpoints": False,
+            "include_seen": False,
         }
     ]
     assert "Eligible Telegram target vacancies (0)" in result.output
@@ -675,6 +676,7 @@ def test_telegram_fetch_cli_explicitly_exports_copyable_preview_links(monkeypatc
     assert result.exit_code == 0, result.output
     assert "1 records written" in result.output
     assert path.exists()
+    assert not output_paths(preferences)["shortlist_history"].exists()
     markdown = path.read_text(encoding="utf-8")
     assert "Business Analyst" in markdown
     assert "https://jobs.example.test/business-analyst" in markdown

@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 from job_assistant.config import load_preferences
 from job_assistant.deduplicate import merge_vacancies, vacancies_match
-from job_assistant.export import export_shortlist, export_source_shortlist, sorted_shortlist
+from job_assistant.export import sorted_shortlist
 from job_assistant.linkedin_policy import LINKEDIN_CLOSED_BLOCKER_REASON
 from job_assistant.linkedin_queue import linkedin_job_id, mark_linkedin_manual_expired, update_queue_processed
 from job_assistant.models import BatchStats, NormalizedVacancy
@@ -36,9 +36,6 @@ SNAPSHOTS = [
     "combined_shortlist.md",
     "deduplicated_shortlist.md",
     ORIGINAL,
-    "shortlist_hh.md",
-    "shortlist_li.md",
-    "shortlist_tg.md",
     "shortlist_extra_4.md",
 ]
 AUDITS = ["shortlist-check-2026-09-22-li.json", "shortlist-check-2026-09-22-hh-public.json"]
@@ -249,6 +246,10 @@ def main():
                 "blocked",
                 "role_review",
                 "previous_combined_shortlist",
+                "shortlist_history",
+                "headhunter_shortlist",
+                "linkedin_shortlist",
+                "telegram_shortlist",
             }
         ],
     }
@@ -274,16 +275,13 @@ def main():
             preferences, job_id, {"pipeline_outcome": "expired", "blocker_reasons": [LINKEDIN_CLOSED_BLOCKER_REASON]}
         )
     write_json(paths["recovered_state"], state.model_dump(mode="json"))
-    summary = rebuild_from_authoritative_sources(preferences, BatchStats())
+    # Check the planned selection before the final publication records its identities.
     _, vacancies, _ = prepare_authoritative_vacancies(preferences)
     selected = sorted_shortlist(vacancies, 50)
-    export_shortlist(vacancies, 50, paths["deduplicated_shortlist"])
-    for source in ["headhunter", "linkedin", "telegram"]:
-        export_source_shortlist(selected, source, 50, paths[f"{source}_shortlist"])
-    assert paths["combined_shortlist"].read_bytes() == paths["deduplicated_shortlist"].read_bytes()
     assert all(not item.previously_exported and not item.blocker for item in selected)
     assert not any(vacancies_match(item, decision.identity) for item in selected for decision in state.exclusions)
     assert not any(vacancies_match(item, entry.identity) for item in selected for entry in state.history)
+    summary = rebuild_from_authoritative_sources(preferences, BatchStats())
     plan.update(
         {
             "backup_directory": str(archive.relative_to(ROOT)),

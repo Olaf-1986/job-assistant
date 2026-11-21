@@ -86,6 +86,7 @@ def review_rvc(
     review: RvcReview | None = None,
     status: Literal["reviewed", "rejected", "expired"] = "reviewed",
     minutes: float | None = None,
+    include_seen: bool = False,
     now: datetime | None = None,
 ) -> dict:
     store = load_rvc_store(preferences)
@@ -124,14 +125,14 @@ def review_rvc(
         entry.review_minutes = minutes
     save_rvc_store(preferences, store)
     # The authoritative review is saved first; a failed export can be retried safely.
-    return rebuild_from_authoritative_sources(preferences)
+    return rebuild_from_authoritative_sources(preferences, include_seen=include_seen)
 
 
 def audit_rvc(preferences: Preferences, *, now: datetime | None = None) -> dict:
     """Local pilot metrics; no remote calls and no global LinkedIn coverage claims."""
     current = (now or utc_now()).astimezone(UTC)
     store = load_rvc_store(preferences)
-    _, combined, _ = prepare_authoritative_vacancies(preferences)
+    _, combined, _ = prepare_authoritative_vacancies(preferences, compare_history=False)
     attributed = [v for v in combined if "rvc" in v.sources]
     eligible = sorted_shortlist(attributed, len(attributed))
     exclusive = [v for v in eligible if set(v.sources) == {"rvc"}]

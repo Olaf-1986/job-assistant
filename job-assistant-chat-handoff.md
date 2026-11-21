@@ -167,9 +167,14 @@ Console output and the final `summary.json` contain `success`/`skipped`/`error` 
 also publishes the selected saved fallback and exits 1 on a source failure. Ctrl+C/abort stops the whole command.
 Authoritative-store damage and publication failures are fatal; they never become an apparently successful fallback
 rebuild. Earlier source writes/publications can already have completed before a later stage aborts.
-`shortlist-deduplicated` computes current candidates from authoritative stores, excludes identities found in the
-combined-shortlist baseline saved by its previous invocation, writes `deduplicated_shortlist.md`, and then advances
-the JSON baseline. That baseline is comparison state only and is never an authoritative vacancy input.
+Canonical deliveries and explicit `shortlist-deduplicated` reports share `shortlist_history.json`. Selection
+excludes all previously delivered identities before applying the size limit. `--include-seen` admits them for the
+current run and still records new identities. Source views, Telegram previews and intermediate qf/LinkedIn
+batch rebuilds do not advance history. The first final export incorporates verifiable historical shortlist links
+and recovered identities. The previous baseline can corroborate a card. Historical gaps remain unknown.
+History uses shared canonical URLs, source-qualified IDs, company/title/location and description/repost matching.
+Normalized records and raw stores retain seen vacancies. Each final report and its new cumulative history are
+journaled together. A malformed history stops publication. A competing update requires retry.
 
 HeadHunter refreshes preserve LinkedIn, Telegram and reviewed RVC records. Failed or skipped HeadHunter/email work does not erase
 successful stored data. Repeated email ingestion, LinkedIn processing, Telegram message identities, vacancy IDs, and
@@ -192,7 +197,7 @@ Derived-state `read_json` recovery policies remain separate.
 The complete export bundle (including authoritative HH, JSON, CSV, all shortlist views, review/blocked Markdown and
 summary) uses staged bytes, checksums and `.publication.json`. Recovery rolls the saved bundle forward before
 authoritative reads, or through local `recover-output`; a damaged journal/staging set blocks recovery. Summary is
-last. Deduplicated report/baseline, Telegram raw/checkpoints/failures and channel-check report sets use the same
+last. Deduplicated report/history, Telegram raw/checkpoints/failures and channel-check report sets use the same
 mechanism. Sequential replacements are not an atomic set: readers can see intermediate files, the whole ingestion
 workflow requires a single writer, source-first ingestion can precede report export, and power-loss durability is
 filesystem-dependent. See README Persistence for recovery instructions and exact limits.

@@ -15,7 +15,9 @@ from .paths import output_paths
 from .persistence import rebuild_from_authoritative_sources
 from .publication import json_bytes, publish_files, recover_publication
 from .raw_store import read_raw_store
+from .recovered_state import apply_recovered_state
 from .scoring import score_vacancies
+from .shortlist_history import ShortlistHistory, load_shortlist_history
 from .telegram_client import TelegramError, TelegramMessage, TelegramRateLimitError, build_telegram_reader
 from .telegram_page import fetch_vacancy_page_text
 from .telegram_parser import TelegramParseResult, parse_telegram_message
@@ -83,6 +85,7 @@ async def fetch_telegram(
     dry_run: bool = False,
     all_history: bool = False,
     ignore_checkpoints: bool = False,
+    include_seen: bool = False,
     reader: TelegramReader | None = None,
     now: datetime | None = None,
     sleep: Any = asyncio.sleep,
@@ -202,9 +205,10 @@ async def fetch_telegram(
             )
 
     if dry_run:
-        result.eligible_targets = _eligible_target_preview(preferences, result.parsed_results)
+        history = load_shortlist_history(preferences)
+        result.eligible_targets = _eligible_target_preview(preferences, result.parsed_results, history, include_seen)
         result.eligible_targets_by_source = {
-            source: _eligible_target_preview(preferences, {source: parsed_results})
+            source: _eligible_target_preview(preferences, {source: parsed_results}, history, include_seen)
             for source, parsed_results in result.parsed_results.items()
         }
     if not dry_run and successful_source:
@@ -213,7 +217,7 @@ async def fetch_telegram(
             raw_records_received=result.imported_records,
             errors=result.errors,
         )
-        result.summary = rebuild_from_authoritative_sources(preferences, stats)
+        result.summary = rebuild_from_authoritative_sources(preferences, stats, include_seen=include_seen)
     return result
 
 
@@ -271,6 +275,8 @@ def _select_latest_messages(
 def _eligible_target_preview(
     preferences: Preferences,
     parsed_results: dict[str, list[TelegramParseResult]],
+    history: ShortlistHistory,
+    include_seen: bool,
 ) -> list[NormalizedVacancy]:
     raw = [
         {"query": f"telegram:{source}", "record": dict(record)}
@@ -280,8 +286,10 @@ def _eligible_target_preview(
     ]
     normalized = normalize_records(raw, preferences)
     deduplicated, _ = deduplicate_vacancies(normalized)
+    apply_recovered_state(deduplicated, preferences)
+    history.mark(deduplicated)
     scored = score_vacancies(apply_filters(deduplicated, preferences), preferences)
-    return sorted_shortlist(scored, len(scored))
+    return sorted_shortlist(scored, len(scored), include_seen=include_seen)
 
 
 def _populate_report(

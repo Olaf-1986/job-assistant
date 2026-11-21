@@ -147,7 +147,9 @@ def recover_publication(directory: Path) -> bool:
         return _recover_locked(directory)
 
 
-def publish_files(directory: Path, files: Mapping[Path, bytes]) -> None:
+def publish_files(
+    directory: Path, files: Mapping[Path, bytes], *, expected_digests: Mapping[Path, str | None] | None = None
+) -> None:
     """Stage the entire set before touching destinations; keep evidence on failure."""
     try:
         directory.mkdir(parents=True, exist_ok=True)
@@ -155,6 +157,13 @@ def publish_files(directory: Path, files: Mapping[Path, bytes]) -> None:
         raise PublicationError("Cannot create output publication directory; check local storage access.") from None
     with _publication_lock(directory):
         _recover_locked(directory)
+        for path, expected in (expected_digests or {}).items():
+            try:
+                actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            except FileNotFoundError:
+                actual = None
+            if actual != expected:
+                raise PublicationError("Shortlist history changed during selection. Retry the publication.")
         stage: Path | None = None
         try:
             destinations = [_relative_target(directory, path) for path in files]

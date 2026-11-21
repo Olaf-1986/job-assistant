@@ -12,24 +12,26 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .config import Preferences
-from .deduplicate import vacancies_match
 from .errors import sanitize_error
 from .filters import REMOTE_LOCATION_WARNING, manual_location_blocks_shortlist
 from .models import BatchStats, NormalizedVacancy
 from .paths import output_paths
-from .publication import PublicationError, json_bytes, publish_files, recover_publication
+from .publication import json_bytes, publish_files, recover_publication
 from .raw_store import read_raw_store, validate_raw_records
 from .rvc_store import load_rvc_store
 from .salary import gross_tax_ratio, net_amount
+from .shortlist_history import HISTORY_MARKER, ShortlistHistory, load_shortlist_history, shortlist_publication_deferred
 from .utils import ensure_directory, write_bytes
 
 
-def sorted_shortlist(vacancies: list[NormalizedVacancy], size: int) -> list[NormalizedVacancy]:
+def sorted_shortlist(
+    vacancies: list[NormalizedVacancy], size: int, *, include_seen: bool = False
+) -> list[NormalizedVacancy]:
     eligible = [
         vacancy
         for vacancy in vacancies
         if not vacancy.blocker
-        and not vacancy.previously_exported
+        and (include_seen or not vacancy.previously_exported)
         and not manual_location_blocks_shortlist(vacancy)
         and not vacancy.requires_manual_role_review
     ]
@@ -73,7 +75,12 @@ def source_shortlist_candidates(
             )
             projected.append(
                 vacancy.model_copy(
-                    update={"apply_url": linkedin_url, "source_url": linkedin_url, "application_url": linkedin_url}
+                    update={
+                        "apply_url": linkedin_url,
+                        "source_url": linkedin_url,
+                        "application_url": linkedin_url,
+                        "source_urls": list(dict.fromkeys(url for url in urls if url)),
+                    }
                 )
                 if linkedin_url
                 else vacancy
@@ -94,40 +101,43 @@ def _published_on_or_after(publication_date: datetime | None, cutoff: datetime) 
     return comparable_date >= comparable_cutoff
 
 
-def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path) -> int:
+def export_shortlist(vacancies: list[NormalizedVacancy], size: int, path: Path, *, include_seen: bool = False) -> int:
     """Write an eligible score/date-sorted Markdown shortlist."""
-    shortlist = sorted_shortlist(vacancies, size)
+    shortlist = sorted_shortlist(vacancies, size, include_seen=include_seen)
     ensure_directory(path.parent)
     write_bytes(path, _shortlist_markdown(shortlist).encode("utf-8"))
     return len(shortlist)
 
 
+def _final_shortlist_files(
+    report_path: Path,
+    history_path: Path,
+    shortlist: list[NormalizedVacancy],
+    history: ShortlistHistory,
+    notes: list[str] | None = None,
+) -> dict[Path, bytes]:
+    for vacancy in shortlist:
+        history.remember(vacancy)
+    markdown = _shortlist_markdown(shortlist, notes=notes)
+    return {report_path: f"{markdown}\n{HISTORY_MARKER}\n".encode("utf-8"), history_path: history.payload()}
+
+
 def export_deduplicated_shortlist(
     vacancies: list[NormalizedVacancy],
-    previous_shortlist: list[NormalizedVacancy],
-    size: int,
-    path: Path,
+    preferences: Preferences,
     *,
-    baseline_path: Path | None = None,
-    directory: Path | None = None,
+    include_seen: bool = False,
 ) -> int:
-    """Write the highest-ranked vacancies absent from the previous combined shortlist."""
-    new_vacancies = [
-        vacancy
-        for vacancy in vacancies
-        if not any(vacancies_match(vacancy, previous) for previous in previous_shortlist)
-    ]
-    if baseline_path is None:
-        return export_shortlist(new_vacancies, size, path)
-    shortlist = sorted_shortlist(new_vacancies, size)
+    """Publish a separate final report against the shared delivery history."""
+    paths = output_paths(preferences)
+    history = load_shortlist_history(preferences)
+    history.mark(vacancies)
+    shortlist = sorted_shortlist(vacancies, preferences.run.shortlist_size, include_seen=include_seen)
+    files = _final_shortlist_files(paths["deduplicated_shortlist"], paths["shortlist_history"], shortlist, history)
     publish_files(
-        directory or path.parent,
-        {
-            path: _shortlist_markdown(shortlist).encode("utf-8"),
-            baseline_path: json_bytes(
-                [vacancy.model_dump(mode="json") for vacancy in sorted_shortlist(vacancies, size)]
-            ),
-        },
+        paths["dir"],
+        files,
+        expected_digests={paths["shortlist_history"]: history.original_digest},
     )
     return len(shortlist)
 
@@ -136,6 +146,8 @@ def export_channel_shortlists(
     vacancies_by_channel: Mapping[str, list[NormalizedVacancy]],
     channel_errors: Mapping[str, str | None],
     directory: Path,
+    *,
+    include_seen: bool = False,
 ) -> list[tuple[str, int, Path]]:
     """Write one ranked Markdown file per allowlisted Telegram channel."""
     ensure_directory(directory)
@@ -150,7 +162,9 @@ def export_channel_shortlists(
         vacancies = vacancies_by_channel[channel]
         safe_channel = re.sub(r"[^a-zA-Z0-9_]+", "_", channel).strip("_") or "unknown"
         path = directory / f"{rank:0{width}d}_{len(vacancies):04d}_{safe_channel}.md"
-        files[path] = _shortlist_markdown(sorted_shortlist(vacancies, len(vacancies))).encode("utf-8")
+        files[path] = _shortlist_markdown(
+            sorted_shortlist(vacancies, len(vacancies), include_seen=include_seen)
+        ).encode("utf-8")
         exported.append((channel, len(vacancies), path))
 
     index_lines = ["# Telegram channel check", "", "Sorted by passed-vacancy count (descending).", ""]
@@ -172,6 +186,7 @@ def export_all(
     *,
     shortlist_source: str | None = None,
     published_since: datetime | None = None,
+    include_seen: bool = False,
 ) -> dict[str, Any]:
     paths = output_paths(preferences)
     recover_publication(paths["dir"])
@@ -180,29 +195,14 @@ def export_all(
     read_raw_store(paths["telegram_raw"], "telegram")
     load_rvc_store(preferences)
     validate_raw_records(raw_records, "headhunter")
-    keys = (
-        "raw",
-        "normalized",
-        "combined_json",
-        "csv",
-        "combined_csv",
-        "combined_shortlist",
-        "blocked",
-        "role_review",
-        "headhunter_shortlist",
-        "linkedin_shortlist",
-        "telegram_shortlist",
-        "rvc_shortlist",
-        "summary",
-    )
-    if len({paths[key].resolve() for key in keys}) != len(keys):
-        raise PublicationError("Output publication paths must be distinct; correct the configuration before retrying.")
+    history = load_shortlist_history(preferences)
+    history.mark(vacancies)
     candidates = (
         source_shortlist_candidates(vacancies, shortlist_source, published_since=published_since)
         if shortlist_source is not None
         else vacancies
     )
-    shortlist = sorted_shortlist(candidates, preferences.run.shortlist_size)
+    shortlist = sorted_shortlist(candidates, preferences.run.shortlist_size, include_seen=include_seen)
     blocked = sorted([v for v in vacancies if v.blocker], key=lambda item: item.score, reverse=True)
     role_review = sorted(
         [v for v in vacancies if not v.blocker and v.requires_manual_role_review],
@@ -211,7 +211,7 @@ def export_all(
     )
     eligible_count = sum(
         not v.blocker
-        and not v.previously_exported
+        and (include_seen or not v.previously_exported)
         and not manual_location_blocks_shortlist(v)
         and not v.requires_manual_role_review
         for v in vacancies
@@ -247,7 +247,6 @@ def export_all(
         paths["combined_json"]: normalized,
         paths["csv"]: csv_payload,
         paths["combined_csv"]: csv_payload,
-        paths["combined_shortlist"]: _shortlist_markdown(shortlist).encode("utf-8"),
         paths["blocked"]: _blocked_markdown(blocked).encode("utf-8"),
         paths["role_review"]: _role_review_markdown(role_review).encode("utf-8"),
     }
@@ -259,11 +258,15 @@ def export_all(
         ("rvc", "rvc_shortlist"),
     ):
         attributed = source_shortlist_candidates(vacancies, source, published_since=published_since)
-        files[paths[key]] = _shortlist_markdown(sorted_shortlist(attributed, preferences.run.shortlist_size)).encode(
-            "utf-8"
+        files[paths[key]] = _shortlist_markdown(
+            sorted_shortlist(attributed, preferences.run.shortlist_size, include_seen=include_seen),
+        ).encode("utf-8")
+    if not shortlist_publication_deferred():
+        files.update(
+            _final_shortlist_files(paths["combined_shortlist"], paths["shortlist_history"], shortlist, history)
         )
-    files[paths["summary"]] = json_bytes(summary)
-    publish_files(paths["dir"], files)
+        files[paths["summary"]] = json_bytes(summary)
+    publish_files(paths["dir"], files, expected_digests={paths["shortlist_history"]: history.original_digest})
     return summary
 
 

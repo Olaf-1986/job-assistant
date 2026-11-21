@@ -34,6 +34,7 @@ from job_assistant.models import BatchStats, NormalizedVacancy
 from job_assistant.normalize import normalize_records
 from job_assistant.paths import output_paths
 from job_assistant.persistence import read_headhunter_raw, read_linkedin_manual_raw, rebuild_from_authoritative_sources
+from job_assistant.shortlist_history import HISTORY_MARKER
 from job_assistant.sources import load_statuses
 from job_assistant.telegram_parser import parse_telegram_message
 from job_assistant.utils import read_json, write_json
@@ -118,6 +119,7 @@ def test_quick_fetch_li_builds_linkedin_only_shortlist():
     assert {key: value for key, value in calls[-1][1].items() if key != "ctx"} == {
         "source": "linkedin",
         "size": 20,
+        "include_seen": False,
         "since_days": 7,
     }
 
@@ -180,6 +182,7 @@ def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
         NormalizedVacancy(
             source=source,
             sources=[source],
+            source_id=title,
             title=title,
             normalized_title=title.lower(),
             score=100,
@@ -202,7 +205,7 @@ def test_linkedin_source_shortlist_excludes_hh_records(monkeypatch, tmp_path):
     markdown = paths["linkedin_shortlist"].read_text(encoding="utf-8")
     assert "LinkedIn Analyst" in markdown
     assert "HH Analyst" not in markdown
-    assert paths["combined_shortlist"].read_text(encoding="utf-8") == markdown
+    assert paths["combined_shortlist"].read_text(encoding="utf-8") == f"{markdown}\n{HISTORY_MARKER}\n"
     assert len(read_json(paths["combined_json"])) == 2
     assert not (paths["dir"] / "shortlist.md").exists()
 
@@ -214,6 +217,7 @@ def test_headhunter_source_shortlist_has_a_dedicated_output(monkeypatch, tmp_pat
         NormalizedVacancy(
             source="headhunter",
             sources=["headhunter"],
+            source_id="1",
             title="HH Analyst",
             normalized_title="hh analyst",
             score=100,
@@ -236,7 +240,7 @@ def test_headhunter_source_shortlist_has_a_dedicated_output(monkeypatch, tmp_pat
     assert "HH Analyst" not in paths["linkedin_shortlist"].read_text(encoding="utf-8")
 
 
-def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(monkeypatch, tmp_path):
+def test_deduplicated_shortlist_accumulates_only_published_identities(monkeypatch, tmp_path):
     preferences = temp_preferences(tmp_path)
     paths = output_paths(preferences)
 
@@ -263,19 +267,15 @@ def test_deduplicated_shortlist_uses_and_advances_previous_combined_baseline(mon
     initial = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
 
     assert initial.exit_code == 0, initial.output
-    assert "baseline initialized" in " ".join(initial.output.split())
-    initial_baseline = read_json(paths["previous_combined_shortlist"])
-    assert [item["source_id"] for item in initial_baseline] == ["1"]
+    assert read_json(paths["shortlist_history"])["keys"] == ["id:headhunter:1"]
 
     updated = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
 
     assert updated.exit_code == 0, updated.output
-    assert "baseline advanced" in " ".join(updated.output.split())
     markdown = paths["deduplicated_shortlist"].read_text(encoding="utf-8")
     assert "Second Analyst" in markdown
     assert "First Analyst" not in markdown
-    baseline = read_json(paths["previous_combined_shortlist"])
-    assert [item["source_id"] for item in baseline] == ["1", "2"]
+    assert read_json(paths["shortlist_history"])["keys"] == ["id:headhunter:1", "id:headhunter:2"]
 
 
 @pytest.mark.parametrize(
@@ -297,12 +297,7 @@ def test_deduplicated_shortlist_rejects_invalid_baseline_without_mutating_files(
     paths["deduplicated_shortlist"].write_text("existing shortlist\n", encoding="utf-8")
     before_baseline = paths["previous_combined_shortlist"].read_bytes()
     before_shortlist = paths["deduplicated_shortlist"].read_bytes()
-    prepared = []
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
-    monkeypatch.setattr(
-        "job_assistant.cli.prepare_authoritative_vacancies",
-        lambda *args, **kwargs: prepared.append(True),
-    )
 
     for _ in range(2):
         result = runner.invoke(app, ["shortlist-deduplicated", "-n", "10"])
@@ -312,7 +307,7 @@ def test_deduplicated_shortlist_rejects_invalid_baseline_without_mutating_files(
         assert paths["previous_combined_shortlist"].read_bytes() == before_baseline
         assert paths["deduplicated_shortlist"].read_bytes() == before_shortlist
         assert list(paths["dir"].glob("previous_combined_shortlist.json.corrupt-*")) == []
-    assert prepared == []
+    assert not paths["shortlist_history"].exists()
 
 
 def test_linkedin_source_shortlist_excludes_records_older_than_window(monkeypatch, tmp_path):
@@ -323,6 +318,7 @@ def test_linkedin_source_shortlist_excludes_records_older_than_window(monkeypatc
         NormalizedVacancy(
             source="linkedin",
             sources=["linkedin"],
+            source_id=title,
             title=title,
             normalized_title=title.lower(),
             publication_date=publication_date,

@@ -25,6 +25,7 @@ def test_output_paths_preserve_configured_keys_and_filenames(tmp_path):
         "combined_shortlist": outputs.combined_shortlist_file,
         "deduplicated_shortlist": outputs.deduplicated_shortlist_file,
         "previous_combined_shortlist": outputs.previous_combined_shortlist_file,
+        "shortlist_history": "shortlist_history.json",
         "recovered_state": "recovered_shortlist_state.json",
         "manual_imports": outputs.manual_imports_file,
         "email_candidates": outputs.email_candidates_file,

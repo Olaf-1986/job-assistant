@@ -19,6 +19,7 @@ from job_assistant.paths import output_paths
 from job_assistant.persistence import merge_headhunter_raw, rebuild_from_authoritative_sources
 from job_assistant.publication import JOURNAL, PublicationError, recover_publication
 from job_assistant.raw_store import StoreError
+from job_assistant.shortlist_history import defer_shortlist_publication
 from job_assistant.telegram_ingestion import TelegramFetchResult, TelegramSourceReport
 from job_assistant.telegram_parser import parse_telegram_message
 from job_assistant.utils import read_json_strict, write_json
@@ -80,6 +81,8 @@ def test_email_hh_updates_same_id_only_after_complete_success(monkeypatch, prefe
 
 
 def seed_sources(preferences):
+    # Seed an earlier empty publication and fresh, as-yet undelivered source records.
+    rebuild_from_authoritative_sources(preferences)
     paths = output_paths(preferences)
     now = datetime.now(UTC).isoformat()
     write_json(paths["raw"], [{"record": {**REMOTE_BA, "published_at": now}}])
@@ -105,7 +108,8 @@ def seed_sources(preferences):
     telegram = parse_telegram_message(ORDINARY_VACANCY, preferences).target_records[0]
     telegram["published_at"] = now
     write_json(paths["telegram_raw"], [{"record": telegram}])
-    rebuild_from_authoritative_sources(preferences)
+    with defer_shortlist_publication():
+        rebuild_from_authoritative_sources(preferences)
     return paths
 
 

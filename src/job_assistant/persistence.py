@@ -17,6 +17,7 @@ from .raw_store import read_raw_store, validate_raw_records
 from .recovered_state import apply_recovered_state
 from .rvc_store import read_rvc_raw
 from .scoring import score_vacancies
+from .shortlist_history import load_shortlist_history
 from .utils import read_json
 
 
@@ -52,8 +53,9 @@ def rebuild_from_authoritative_sources(
     *,
     shortlist_source: str | None = None,
     published_since: datetime | None = None,
+    include_seen: bool = False,
 ) -> dict[str, Any]:
-    hh_raw, vacancies, duplicates = prepare_authoritative_vacancies(preferences, headhunter_raw)
+    hh_raw, vacancies, duplicates = prepare_authoritative_vacancies(preferences, headhunter_raw, compare_history=False)
     run_stats = stats or BatchStats()
     run_stats.duplicates_merged = duplicates
     return export_all(
@@ -64,11 +66,16 @@ def rebuild_from_authoritative_sources(
         preferences.all_queries,
         shortlist_source=shortlist_source,
         published_since=published_since,
+        include_seen=include_seen,
     )
 
 
 def prepare_authoritative_vacancies(
-    preferences: Preferences, headhunter_raw: list[RawRecord] | None = None, *, include_rvc: bool = True
+    preferences: Preferences,
+    headhunter_raw: list[RawRecord] | None = None,
+    *,
+    include_rvc: bool = True,
+    compare_history: bool = True,
 ) -> tuple[list[RawRecord], list[NormalizedVacancy], int]:
     """Run the shared pipeline without exporting its derived outputs."""
     # Even a successful replacement must not hide a damaged existing store.
@@ -83,6 +90,8 @@ def prepare_authoritative_vacancies(
     vacancies = normalize_records(all_raw, preferences)
     vacancies, duplicates = deduplicate_vacancies(vacancies)
     apply_recovered_state(vacancies, preferences)
+    if compare_history:
+        load_shortlist_history(preferences).mark(vacancies)
     vacancies = score_vacancies(apply_filters(vacancies, preferences), preferences)
     return hh_raw, vacancies, duplicates
 

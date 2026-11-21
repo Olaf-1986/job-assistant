@@ -87,6 +87,7 @@ def register_rvc_commands(app: typer.Typer, console: Console) -> None:
         masked_id: str = typer.Argument(help="ID from rvc-queue."),
         file: Path | None = typer.Option(None, help="User-completed JSON; see docs/rvc-review.example.json."),
         reject: bool = typer.Option(False, help="Reject a candidate without importing its description."),
+        include_seen: bool = typer.Option(False, "--include-seen", help="Allow previously published vacancies."),
         expired: bool = typer.Option(False, help="Mark the candidate as no longer accepting applications."),
         minutes: float | None = typer.Option(
             None, min=0, help="Total review minutes for this candidate; omitting it preserves the prior value."
@@ -105,6 +106,7 @@ def register_rvc_commands(app: typer.Typer, console: Console) -> None:
                 review=reviewed,
                 status="rejected" if reject else "expired" if expired else "reviewed",
                 minutes=minutes,
+                include_seen=include_seen,
             )
             console.print(
                 f"RVC review saved; shared pipeline rebuilt ({summary['shortlist_count']} shortlisted overall)."

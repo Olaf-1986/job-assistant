@@ -46,16 +46,24 @@ class RecoveredState(BaseModel):
     exclusions: list[RecoveredExclusion]
 
 
+def read_recovered_state(preferences: Preferences) -> RecoveredState | None:
+    path = output_paths(preferences)["recovered_state"]
+    try:
+        return RecoveredState.model_validate(read_json_strict(path))
+    except FileNotFoundError:
+        if path.is_symlink():
+            raise
+        return None
+
+
 def apply_recovered_state(
     vacancies: list[NormalizedVacancy], preferences: Preferences, *, state: RecoveredState | None = None
 ) -> None:
     """Reapply recovered decisions after merging, before shared filtering/scoring."""
     if state is None:
-        path = output_paths(preferences)["recovered_state"]
-        if not path.exists():
+        state = read_recovered_state(preferences)
+        if state is None:
             return
-        # A malformed file must stop the rebuild, never silently clear exclusions/history.
-        state = RecoveredState.model_validate(read_json_strict(path))
     for vacancy in vacancies:
         history_evidence = sorted(
             {

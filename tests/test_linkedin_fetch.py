@@ -641,6 +641,7 @@ def test_recheck_marks_saved_expired_vacancy_and_removes_it_from_shortlist(tmp_p
         limit=1,
         dry_run=False,
         pause_seconds=0,
+        include_seen=True,
         recheck_shortlist_size=1,
         page_fetcher=expired_fetcher,
     )
@@ -676,6 +677,7 @@ def test_recheck_dry_run_does_not_persist_expired_status(tmp_path):
         limit=1,
         dry_run=True,
         pause_seconds=0,
+        include_seen=True,
         recheck_shortlist_size=1,
         page_fetcher=lambda url: (_ for _ in ()).throw(LinkedInFetchError("expired")),
     )
@@ -703,6 +705,7 @@ def test_recheck_rate_limit_persists_local_block(tmp_path):
             limit=1,
             dry_run=False,
             pause_seconds=0,
+            include_seen=True,
             recheck_shortlist_size=1,
             page_fetcher=lambda url: (_ for _ in ()).throw(LinkedInStopRun("rate_limited", signal="http_429")),
         )

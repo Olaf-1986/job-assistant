@@ -253,6 +253,7 @@ OUTPUT_KEYS = (
     "csv",
     "combined_csv",
     "combined_shortlist",
+    "shortlist_history",
     "blocked",
     "role_review",
     "headhunter_shortlist",
@@ -427,15 +428,16 @@ def test_partial_file_write_during_publication_keeps_old_file_and_recoverable_se
     assert "headhunter" not in {item["source"] for item in read_json_strict(paths["combined_json"])}
 
 
-def test_deduplicated_report_and_baseline_recover_together(monkeypatch, preferences):
+def test_deduplicated_report_and_history_recover_together(monkeypatch, preferences):
     paths = seed_sources(preferences)
-    write_json(paths["previous_combined_shortlist"], [])
+    # The source records predate a delivery in this scenario.
+    write_json(paths["shortlist_history"], {"schema_version": 1, "keys": [], "reposts": {}})
     paths["deduplicated_shortlist"].write_text("previous report", encoding="utf-8")
     monkeypatch.setattr("job_assistant.cli.load_preferences", lambda: preferences)
     original_replace = os.replace
 
     def fail_replace(src, dst):
-        if Path(dst) == paths["previous_combined_shortlist"]:
+        if Path(dst) == paths["shortlist_history"]:
             raise OSError("fixture")
         original_replace(src, dst)
 
@@ -444,11 +446,15 @@ def test_deduplicated_report_and_baseline_recover_together(monkeypatch, preferen
         result = runner.invoke(app, ["shortlist-deduplicated"])
         assert result.exit_code == 1
         assert "Incomplete output publication" in " ".join(result.output.split())
-        assert read_json_strict(paths["previous_combined_shortlist"]) == []
+        assert read_json_strict(paths["shortlist_history"])["keys"] == []
     result = runner.invoke(app, ["recover-output"])
     assert result.exit_code == 0
     assert "recovered" in result.output
-    assert read_json_strict(paths["previous_combined_shortlist"])
+    assert read_json_strict(paths["shortlist_history"])["keys"]
+    assert "## 1." in paths["deduplicated_shortlist"].read_text()
+    result = runner.invoke(app, ["shortlist"])
+    assert result.exit_code == 0, result.output
+    assert "## 1." not in paths["combined_shortlist"].read_text()
     assert not (paths["dir"] / JOURNAL).exists()
 
 
