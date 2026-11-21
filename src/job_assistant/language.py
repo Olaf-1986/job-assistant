@@ -177,6 +177,7 @@ _REQUIRED_LANGUAGE_PREFIXES = (
         r"(?:both\s+)?"
         r"(?:(?:business|conversational|written|spoken)(?:\s+(?:and|&)\s+(?:written|spoken))?\s+)?"
         rf"(?:(?:{'|'.join(LANGUAGE_NAME_PATTERNS.values())})"
+        r"(?![\w-])"
         r"(?:\s+languages?)?(?:\s*\(\s*[abc][12]\s*\))?\s*"
         r"(?:,\s*(?:(?:and|or)\b\s*)?|[/&]\s*|(?:and|or)\b\s*)(?:in\s+)?)*$",
         re.IGNORECASE,
